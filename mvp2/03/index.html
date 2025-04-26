@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cortical Hierarchy Demo</title>
+    <style>
+        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; background-color: #f0f0f0; }
+        canvas { border: 1px solid black; background-color: #222; cursor: crosshair; }
+        #infoPanel { display: flex; justify-content: space-around; width: 800px; margin-top: 10px; }
+        .statusBox { border: 1px solid #ccc; padding: 10px; background-color: #fff; min-width: 250px; height: 150px; overflow-y: auto; font-size: 0.9em; }
+        #status { width: 800px; margin-top: 5px; text-align: center; font-size: 0.8em; color: #555; }
+        button { margin-top: 10px; padding: 5px 10px; }
+    </style>
+    <!-- Load TensorFlow.js -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+    <!-- Load Danfo.js (Optional, for logging example) -->
+    <!-- <script src="https://cdn.jsdelivr.net/npm/danfojs@latest/lib/bundle.min.js"></script> -->
+</head>
+<body>
+    <h1>Cortical Hierarchy Inspired Agent Demo</h1>
+    <canvas id="gameCanvas"></canvas>
+    <div id="status">Loading...</div>
+    <button id="toggleBotViewButton">Switch to Bot View</button>
+    <div id="infoPanel">
+        <div id="playerStatus" class="statusBox">
+            --- Player ---<br>
+            Anomaly: N/A <br>
+            Skill: N/A
+        </div>
+        <div id="botStatus" class="statusBox">
+            --- Bots ---<br>
+            No bots spawned yet.
+        </div>
+    </div>
+
+    <!-- Load the Library -->
+    <script src="corticalHierarchy.js"></script>
+    <!-- Load the Game Logic -->
+    <script src="main.js"></script>
+
+</body>
+</html>

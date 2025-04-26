@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>STCH Library Demo</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #333; color: #eee; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; }
+        #gameCanvas { border: 1px solid #555; background-color: #000; touch-action: none; /* Prevent default touch actions */ }
+        #controls { position: absolute; bottom: 10px; left: 10px; right: 10px; display: flex; justify-content: space-between; pointer-events: none; /* Allow canvas interaction */ }
+        .joystick { width: 100px; height: 100px; background-color: rgba(255, 255, 255, 0.2); border-radius: 50%; position: relative; pointer-events: auto; /* Enable touch on joystick */ }
+        .joystick-handle { width: 40px; height: 40px; background-color: rgba(255, 255, 255, 0.5); border-radius: 50%; position: absolute; left: 30px; top: 30px; }
+        #buttons { display: grid; grid-template-columns: repeat(3, 50px); gap: 10px; pointer-events: auto; /* Enable touch on buttons */ }
+        .button { width: 50px; height: 50px; background-color: rgba(80, 80, 200, 0.6); border: 1px solid rgba(200, 200, 255, 0.7); border-radius: 5px; display: flex; justify-content: center; align-items: center; font-weight: bold; user-select: none; }
+        .button.active { background-color: rgba(120, 120, 255, 0.8); }
+        #debugInfo { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.6); padding: 5px; font-size: 12px; max-height: 90vh; overflow-y: auto; }
+    </style>
+    <!-- TFJS -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+    <!-- STCH Library -->
+    <script src="stch.js"></script>
+</head>
+<body>
+    <h1>STCH Library Demo</h1>
+    <canvas id="gameCanvas" width="800" height="600"></canvas>
+    <div id="debugInfo">Loading...</div>
+
+    <!-- Touch Controls -->
+    <div id="controls">
+        <div id="moveJoystick" class="joystick">
+            <div class="joystick-handle"></div>
+        </div>
+        <div id="buttons">
+            <div class="button" id="button_Y">Y</div> <div class="button" id="button_X">X</div> <div class="button" id="button_B">B</div>
+            <div class="button" id="button_RB">RB</div><div class="button" id="button_A">A</div> <div class="button" id="button_RT">RT</div>
+        </div>
+        <div id="lookJoystick" class="joystick">
+            <div class="joystick-handle"></div>
+        </div>
+    </div>
+
+    <script>
+        // --- Game Configuration ---
+        const PLAYER_SPEED = 2;
+        const PLAYER_TURN_SPEED = 0.05;
+        const BOT_SPEED = 1.5;
+        const BULLET_SPEED = 5;
+        const MAX_AMMO = 20;
+        const WORLD_BOUNDS = { x: 0, y: 0, width: 800, height: 600 };
+
+        // --- Game State ---
+        let player = {
+            x: WORLD_BOUNDS.width / 2, y: WORLD_BOUNDS.height / 2, angle: 0,
+            health: 100, ammo: MAX_AMMO, isRunning: false, isBotControlled: false,
+            targetBotId: null // Which bot the player is currently controlling
+        };
+        let bots = {}; // { botId: { x, y, angle, health, ammo, targetPlayer: true, stcBotInstance: bot } }
+        let bullets = []; // { x, y, angle, owner: 'player' | botId }
+        let ammoPacks = [
+            { x: 100, y: 100, size: 10, value: 10 },
+            { x: 700, y: 500, size: 10, value: 10 }
+        ];
+        let nextBotId = 0;
+
+        // --- Input State ---
+        const keys = {}; // Tracks currently pressed keys
+        const mouse = { dx: 0, dy: 0, pressed: false };
+        const gamepad = { axes: [0, 0, 0, 0], buttons: Array(17).fill({ pressed: false, value: 0 }) }; // Standard gamepad layout approximation
+        const touch = {
+            move: { x: 0, y: 0, active: false, identifier: null },
+            look: { x: 0, y: 0, active: false, identifier: null },
+            buttons: {} // { buttonId: pressed }
+        };
+
+        // --- STCH Setup ---
+        let playerHierarchy = null;
+        const actionStreamNames = [
+            'moveX', 'moveY', 'lookX', 'lookY',
+            'run', 'jump', 'attack', 'special', 'interact', 'burst' // Example actions
+            // 'switch1', 'switch2', 'switch3', 'switch4' // Add if using dpad switch
+        ];
+        const senseStreamNames = [
+            'playerX', 'playerY', 'playerAngle', 'playerHealth', 'playerAmmo',
+            'nearestEnemyDist', 'nearestEnemyAngle', 'nearestAmmoDist', 'nearestAmmoAngle'
+            // Add more senses as needed
+        ];
+
+        // --- Canvas & Context ---
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const debugInfo = document.getElementById('debugInfo');
+
+        // --- Utility Functions ---
+        function normalizeAngle(angle) {
+            while (angle < 0) angle += Math.PI * 2;
+            while (angle >= Math.PI * 2) angle -= Math.PI * 2;
+            return angle;
+        }
+
+        function distance(x1, y1, x2, y2) {
+            return Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
+        }
+
+        function angleTo(x1, y1, x2, y2) {
+            return Math.atan2(y2 - y1, x2 - x1);
+        }
+
+        // --- Input Handling ---
+        function setupInputListeners() {
+            // Keyboard
+            window.addEventListener('keydown', (e) => { keys[e.key.toLowerCase()] = true; });
+            window.addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
+
+            // Mouse (for looking) - Use pointer lock for better FPS controls
+            canvas.addEventListener('click', () => {
+                // Request pointer lock only if not already locked,
+                // and maybe only when clicking the canvas itself.
+                if (document.pointerLockElement !== canvas) {
+                    canvas.requestPointerLock().catch(err => console.warn("Pointer lock request failed:", err));
+                }
+            });
+            document.addEventListener('pointerlockchange', () => {
+                if (document.pointerLockElement === canvas) {
+                    document.addEventListener('mousemove', updateMouseLook, false);
+                     document.addEventListener("mousedown", handleMouseDown, false);
+                     document.addEventListener("mouseup", handleMouseUp, false);
+                } else {
+                    document.removeEventListener('mousemove', updateMouseLook, false);
+                    document.removeEventListener("mousedown", handleMouseDown, false);
+                    document.removeEventListener("mouseup", handleMouseUp, false);
+                    mouse.dx = 0; mouse.dy = 0; mouse.pressed = false; // Reset on lock release
+                }
+            }, false);
+            // Mouse click handling needs to be inside the lock logic for clicks
+            function handleMouseDown(e) { if (e.button === 0) mouse.pressed = true; } // Left click
+            function handleMouseUp(e) { if (e.button === 0) mouse.pressed = false; }
+
+            // Gamepad
+            window.addEventListener("gamepadconnected", (e) => {
+                console.log("Gamepad connected:", e.gamepad.id);
+            });
+            window.addEventListener("gamepaddisconnected", (e) => {
+                console.log("Gamepad disconnected:", e.gamepad.id);
+                // Reset gamepad state?
+                 gamepad.axes = [0, 0, 0, 0];
+                 gamepad.buttons.fill({ pressed: false, value: 0 });
+            });
+
+            // Touch
+            setupTouchControls();
+        }
+
+        function updateMouseLook(e) {
+            mouse.dx = e.movementX || 0;
+            mouse.dy = e.movementY || 0;
+            // Don't accumulate indefinitely if game loop is slow, process in getActionValue
+        }
+
+
+        function updateGamepadState() {
+            const gamepads = navigator.getGamepads();
+            const gp = gamepads[0]; // Use the first connected gamepad
+            if (gp) {
+                // Axes (Left Stick: 0,1; Right Stick: 2,3) - apply deadzone
+                const deadzone = 0.15;
+                gamepad.axes[0] = Math.abs(gp.axes[0]) > deadzone ? gp.axes[0] : 0;
+                gamepad.axes[1] = Math.abs(gp.axes[1]) > deadzone ? gp.axes[1] : 0;
+                gamepad.axes[2] = Math.abs(gp.axes[2]) > deadzone ? gp.axes[2] : 0;
+                gamepad.axes[3] = Math.abs(gp.axes[3]) > deadzone ? gp.axes[3] : 0;
+
+                // Buttons (remap based on common layouts if needed)
+                // Example mapping: A=0, B=1, X=2, Y=3, LB=4, RB=5, LT=6, RT=7, Back=8, Start=9, LS=10, RS=11, DUp=12, DDown=13, DLeft=14, DRight=15
+                 const mapping = { A: 0, B: 1, X: 2, Y: 3, RB: 5, RT: 7 }; // Map game actions to button indices
+                 gamepad.buttons[mapping.A] = gp.buttons[0] || { pressed: false, value: 0 }; // A
+                 gamepad.buttons[mapping.B] = gp.buttons[1] || { pressed: false, value: 0 }; // B
+                 gamepad.buttons[mapping.X] = gp.buttons[2] || { pressed: false, value: 0 }; // X
+                 gamepad.buttons[mapping.Y] = gp.buttons[3] || { pressed: false, value: 0 }; // Y
+                 gamepad.buttons[mapping.RB] = gp.buttons[5] || { pressed: false, value: 0 }; // RB (Run)
+                 gamepad.buttons[mapping.RT] = gp.buttons[7] || { pressed: false, value: 0 }; // RT (Elemental Attack)
+                 // Add others like Jump (A), Interact (X), Burst (Y) as needed.
+            }
+        }
+
+        function setupTouchControls() {
+            const moveJoystick = document.getElementById('moveJoystick');
+            const lookJoystick = document.getElementById('lookJoystick');
+            const moveHandle = moveJoystick.querySelector('.joystick-handle');
+            const lookHandle = lookJoystick.querySelector('.joystick-handle');
+            const buttons = document.querySelectorAll('#buttons .button');
+
+            function getJoystickValues(element, handle, touchState) {
+                 const rect = element.getBoundingClientRect();
+                 const centerX = rect.left + rect.width / 2;
+                 const centerY = rect.top + rect.height / 2;
+                 const touchEvent = event.touches.item(touchState.identifier); // Find the specific touch
+
+                 if (!touchEvent) {
+                     touchState.active = false;
+                     touchState.identifier = null;
+                     touchState.x = 0;
+                     touchState.y = 0;
+                     handle.style.transform = `translate(0px, 0px)`;
+                     return;
+                 }
+
+                 const touchX = touchEvent.clientX;
+                 const touchY = touchEvent.clientY;
+
+                 let dx = touchX - centerX;
+                 let dy = touchY - centerY;
+                 const maxDist = rect.width / 2 - handle.offsetWidth / 2; // Max handle movement
+                 const currentDist = Math.sqrt(dx * dx + dy * dy);
+
+                 let normalizedX = dx / maxDist;
+                 let normalizedY = dy / maxDist;
+
+                 if (currentDist > maxDist) {
+                     // Clamp position to edge and normalize values
+                     const scale = maxDist / currentDist;
+                     dx *= scale;
+                     dy *= scale;
+                     normalizedX = dx / maxDist; // Should already be clamped but recalculate for safety
+                     normalizedY = dy / maxDist;
+                 }
+
+                 handle.style.transform = `translate(${dx}px, ${dy}px)`;
+                 touchState.x = Math.max(-1, Math.min(1, normalizedX));
+                 touchState.y = Math.max(-1, Math.min(1, normalizedY));
+            }
+
+             function handleTouchStart(event) {
+                 event.preventDefault(); // Prevent scrolling/zooming
+                 for (let i = 0; i < event.changedTouches.length; i++) {
+                    const touchInstance = event.changedTouches[i];
+                    const targetElement = touchInstance.target;
+
+                    // Check if touch hits a joystick area
+                    if (moveJoystick.contains(targetElement) && !touch.move.active) {
+                        touch.move.active = true;
+                        touch.move.identifier = touchInstance.identifier;
+                        getJoystickValues(moveJoystick, moveHandle, touch.move);
+                    } else if (lookJoystick.contains(targetElement) && !touch.look.active) {
+                        touch.look.active = true;
+                        touch.look.identifier = touchInstance.identifier;
+                        getJoystickValues(lookJoystick, lookHandle, touch.look);
+                    } else {
+                        // Check if touch hits a button
+                         buttons.forEach(button => {
+                             const rect = button.getBoundingClientRect();
+                              if (touchInstance.clientX >= rect.left && touchInstance.clientX <= rect.right &&
+                                  touchInstance.clientY >= rect.top && touchInstance.clientY <= rect.bottom)
+                              {
+                                  const buttonId = button.id.replace('button_', '');
+                                  touch.buttons[buttonId] = { pressed: true, identifier: touchInstance.identifier };
+                                  button.classList.add('active');
+                              }
+                         });
+                    }
+                 }
+             }
+
+            function handleTouchMove(event) {
+                event.preventDefault();
+                 for (let i = 0; i < event.changedTouches.length; i++) {
+                    const touchInstance = event.changedTouches[i];
+                     if (touch.move.active && touchInstance.identifier === touch.move.identifier) {
+                         getJoystickValues(moveJoystick, moveHandle, touch.move);
+                     } else if (touch.look.active && touchInstance.identifier === touch.look.identifier) {
+                         getJoystickValues(lookJoystick, lookHandle, touch.look);
+                     }
+                 }
+            }
+
+             function handleTouchEndCancel(event) {
+                 event.preventDefault();
+                 for (let i = 0; i < event.changedTouches.length; i++) {
+                    const touchInstance = event.changedTouches[i];
+                     if (touch.move.active && touchInstance.identifier === touch.move.identifier) {
+                         touch.move.active = false;
+                         touch.move.identifier = null;
+                         touch.move.x = 0;
+                         touch.move.y = 0;
+                         moveHandle.style.transform = `translate(0px, 0px)`;
+                     } else if (touch.look.active && touchInstance.identifier === touch.look.identifier) {
+                         touch.look.active = false;
+                         touch.look.identifier = null;
+                         touch.look.x = 0;
+                         touch.look.y = 0;
+                         lookHandle.style.transform = `translate(0px, 0px)`;
+                     } else {
+                          // Check if a button was released
+                         Object.entries(touch.buttons).forEach(([buttonId, state]) => {
+                              if (state.identifier === touchInstance.identifier) {
+                                 touch.buttons[buttonId].pressed = false;
+                                 const buttonElement = document.getElementById(`button_${buttonId}`);
+                                 if (buttonElement) buttonElement.classList.remove('active');
+                              }
+                         });
+                     }
+                 }
+             }
+
+            canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
+            canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
+            canvas.addEventListener('touchend', handleTouchEndCancel, { passive: false });
+            canvas.addEventListener('touchcancel', handleTouchEndCancel, { passive: false });
+            // Add listeners to controls div as well, potentially bubbling issues? Add directly to joysticks/buttons
+             moveJoystick.addEventListener('touchstart', handleTouchStart, { passive: false });
+             moveJoystick.addEventListener('touchmove', handleTouchMove, { passive: false });
+             moveJoystick.addEventListener('touchend', handleTouchEndCancel, { passive: false });
+             moveJoystick.addEventListener('touchcancel', handleTouchEndCancel, { passive: false });
+             lookJoystick.addEventListener('touchstart', handleTouchStart, { passive: false });
+             lookJoystick.addEventListener('touchmove', handleTouchMove, { passive: false });
+             lookJoystick.addEventListener('touchend', handleTouchEndCancel, { passive: false });
+             lookJoystick.addEventListener('touchcancel', handleTouchEndCancel, { passive: false });
+             buttons.forEach(button => {
+                 button.addEventListener('touchstart', handleTouchStart, { passive: false });
+                 button.addEventListener('touchend', handleTouchEndCancel, { passive: false });
+                  button.addEventListener('touchcancel', handleTouchEndCancel, { passive: false });
+                  // Prevent move events on buttons from propagating? Maybe not necessary
+             });
+
+        }
+
+
+        // --- Action Abstraction ---
+        // Returns a value for a specific action by checking all input methods
+        function getActionValue(actionName) {
+            switch (actionName) {
+                // Movement Actions (combine sources)
+                case 'moveX': // Strafe Left/Right (-1 to 1)
+                    return (keys['a'] ? -1 : 0) + (keys['d'] ? 1 : 0) + gamepad.axes[0] + touch.move.x;
+                case 'moveY': // Forward/Backward (-1 to 1) - Note: typically forward is positive Z, backward negative. Gamepad Y often inverted.
+                     return (keys['w'] ? 1 : 0) + (keys['s'] ? -1 : 0) - gamepad.axes[1] - touch.move.y; // Invert gamepad/touch Y
+                case 'lookX': // Look Left/Right (delta value)
+                    const mouseDX = mouse.dx; mouse.dx = 0; // Consume mouse delta
+                    return mouseDX * 0.1 + gamepad.axes[2] * 2.0 + touch.look.x * 2.0; // Scale appropriately
+                case 'lookY': // Look Up/Down (delta value)
+                    const mouseDY = mouse.dy; mouse.dy = 0; // Consume mouse delta
+                    return mouseDY * 0.1 + gamepad.axes[3] * 2.0 + touch.look.y * 2.0; // Scale appropriately
+
+                // Button Actions (binary 0 or 1, or trigger value)
+                case 'run':
+                     return (keys['shift'] || gamepad.buttons[5]?.pressed || touch.buttons['RB']?.pressed) ? 1 : 0; // Shift, RB, Touch RB
+                case 'jump':
+                     return (keys[' '] || gamepad.buttons[0]?.pressed || touch.buttons['A']?.pressed) ? 1 : 0; // Space, A, Touch A
+                 case 'attack': // Normal Attack
+                     return (mouse.pressed || gamepad.buttons[1]?.pressed || touch.buttons['B']?.pressed) ? 1 : 0; // Left Click, B, Touch B
+                 case 'special': // Elemental Attack
+                      return (keys['q'] || gamepad.buttons[7]?.value > 0.5 || touch.buttons['RT']?.pressed) ? 1 : 0; // Q, RT, Touch RT (use value for analog trigger)
+                 case 'interact': // Pick up / Use
+                      return (keys['e'] || gamepad.buttons[2]?.pressed || touch.buttons['X']?.pressed) ? 1 : 0; // E, X, Touch X
+                 case 'burst': // Energy Burst
+                      return (keys['f'] || gamepad.buttons[3]?.pressed || touch.buttons['Y']?.pressed) ? 1 : 0; // F, Y, Touch Y
+
+                // Add D-pad switching if needed
+                // case 'switch1': return gamepad.buttons[12]?.pressed ? 1 : 0; // Dpad Up
+                // case 'switch2': return gamepad.buttons[15]?.pressed ? 1 : 0; // Dpad Right
+                // ...
+
+                default: return 0;
+            }
+        }
+
+        // --- Sense Gathering ---
+        function getSenseValues(entity) {
+            const senses = {};
+            senses['playerX'] = [entity.x / WORLD_BOUNDS.width]; // Normalize
+            senses['playerY'] = [entity.y / WORLD_BOUNDS.height]; // Normalize
+            senses['playerAngle'] = [entity.angle / (Math.PI * 2)]; // Normalize
+            senses['playerHealth'] = [entity.health / 100]; // Normalize
+            senses['playerAmmo'] = [entity.ammo / MAX_AMMO]; // Normalize
+
+            // Find nearest enemy (bot for player, player for bot)
+            let nearestEnemy = null;
+            let minDistSq = Infinity;
+            const targetIsPlayer = entity.targetPlayer === true; // Bot targets player
+
+            if (targetIsPlayer) {
+                 if (player.health > 0) { // Only target player if alive
+                    const dSq = (player.x - entity.x)**2 + (player.y - entity.y)**2;
+                    if (dSq < minDistSq) {
+                        minDistSq = dSq;
+                        nearestEnemy = player;
+                    }
+                 }
+            } else { // Player targets bots
+                Object.values(bots).forEach(bot => {
+                     if (bot.health > 0) { // Only target alive bots
+                        const dSq = (bot.x - entity.x)**2 + (bot.y - entity.y)**2;
+                        if (dSq < minDistSq) {
+                            minDistSq = dSq;
+                            nearestEnemy = bot;
+                        }
+                     }
+                });
+            }
+
+            if (nearestEnemy) {
+                 const dist = Math.sqrt(minDistSq);
+                 const angleRel = normalizeAngle(angleTo(entity.x, entity.y, nearestEnemy.x, nearestEnemy.y) - entity.angle);
+                 senses['nearestEnemyDist'] = [Math.min(1, dist / Math.max(WORLD_BOUNDS.width, WORLD_BOUNDS.height))]; // Normalize max possible distance
+                 senses['nearestEnemyAngle'] = [angleRel / (Math.PI * 2)]; // Normalize relative angle
+            } else {
+                senses['nearestEnemyDist'] = [1]; // Max distance if no enemy
+                senses['nearestEnemyAngle'] = [0]; // Default angle
+            }
+
+             // Find nearest ammo pack
+             let nearestAmmo = null;
+             minDistSq = Infinity;
+             ammoPacks.forEach(pack => {
+                 const dSq = (pack.x - entity.x)**2 + (pack.y - entity.y)**2;
+                 if (dSq < minDistSq) {
+                     minDistSq = dSq;
+                     nearestAmmo = pack;
+                 }
+             });
+
+             if (nearestAmmo) {
+                  const dist = Math.sqrt(minDistSq);
+                  const angleRel = normalizeAngle(angleTo(entity.x, entity.y, nearestAmmo.x, nearestAmmo.y) - entity.angle);
+                  senses['nearestAmmoDist'] = [Math.min(1, dist / Math.max(WORLD_BOUNDS.width, WORLD_BOUNDS.height))];
+                  senses['nearestAmmoAngle'] = [angleRel / (Math.PI * 2)];
+             } else {
+                 senses['nearestAmmoDist'] = [1];
+                 senses['nearestAmmoAngle'] = [0];
+             }
+
+             // Ensure all defined sense streams are present, even if zero
+             senseStreamNames.forEach(name => {
+                 if (!senses.hasOwnProperty(name)) {
+                     // Find dimension from hierarchy config if possible, else default to 1
+                     const dim = playerHierarchy?.streams[name]?.dimension ?? 1;
+                     senses[name] = Array(dim).fill(0);
+                 }
+                 // Ensure value is always an array
+                 if (!Array.isArray(senses[name])) {
+                      senses[name] = [senses[name]];
+                 }
+             });
+
+
+            return senses;
+        }
+
+         // --- Game Logic ---
+         function updatePlayer(actions) {
+             const currentEntity = player.isBotControlled ? bots[player.targetBotId] : player;
+             if (!currentEntity || currentEntity.health <= 0) return; // Skip if dead or invalid
+
+
+             // Movement
+             const moveX = actions.moveX ?? 0; // Use provided actions
+             const moveY = actions.moveY ?? 0;
+             const lookX = actions.lookX ?? 0;
+             // const lookY = actions.lookY ?? 0; // Not used in 2D top-down
+
+             const run = actions.run > 0.5;
+             const speed = run ? PLAYER_SPEED * 1.5 : PLAYER_SPEED;
+
+             currentEntity.angle = normalizeAngle(currentEntity.angle + lookX * PLAYER_TURN_SPEED);
+
+             const moveMagnitude = Math.sqrt(moveX*moveX + moveY*moveY);
+             const moveAngle = Math.atan2(moveY, moveX); // Angle relative to forward
+             const worldMoveAngle = normalizeAngle(currentEntity.angle + moveAngle - Math.PI / 2); // Adjust for canvas coords and desired movement mapping
+
+
+             let dx = 0;
+             let dy = 0;
+             if (moveMagnitude > 0.1) { // Apply deadzone
+                 dx = Math.cos(worldMoveAngle) * speed * Math.min(1, moveMagnitude);
+                 dy = Math.sin(worldMoveAngle) * speed * Math.min(1, moveMagnitude);
+             }
+
+
+             currentEntity.x += dx;
+             currentEntity.y += dy;
+
+             // Boundary checks
+             currentEntity.x = Math.max(0, Math.min(WORLD_BOUNDS.width, currentEntity.x));
+             currentEntity.y = Math.max(0, Math.min(WORLD_BOUNDS.height, currentEntity.y));
+
+             // Actions (Attack, Interact) - Use simple cooldown
+              const now = Date.now();
+              if (!currentEntity.lastActionTime) currentEntity.lastActionTime = {};
+
+              if (actions.attack > 0.5 && currentEntity.ammo > 0 && (!currentEntity.lastActionTime.attack || now - currentEntity.lastActionTime.attack > 200)) {
+                 currentEntity.ammo--;
+                 bullets.push({
+                     x: currentEntity.x + Math.cos(currentEntity.angle - Math.PI / 2) * 15,
+                     y: currentEntity.y + Math.sin(currentEntity.angle - Math.PI / 2) * 15,
+                     angle: currentEntity.angle,
+                     owner: player.isBotControlled ? player.targetBotId : 'player'
+                 });
+                 currentEntity.lastActionTime.attack = now;
+              }
+
+             if (actions.interact > 0.5 && (!currentEntity.lastActionTime.interact || now - currentEntity.lastActionTime.interact > 500)) {
+                 // Check for ammo packs
+                 ammoPacks.forEach((pack, index) => {
+                     if (distance(currentEntity.x, currentEntity.y, pack.x, pack.y) < 20) {
+                         currentEntity.ammo = Math.min(MAX_AMMO, currentEntity.ammo + pack.value);
+                         ammoPacks.splice(index, 1); // Remove pack
+                         currentEntity.lastActionTime.interact = now;
+                         // Respawn ammo pack after a delay? For simplicity, just remove for now.
+                         setTimeout(() => {
+                            if(ammoPacks.length < 5) { // Limit total packs
+                                ammoPacks.push({
+                                     x: Math.random() * WORLD_BOUNDS.width,
+                                     y: Math.random() * WORLD_BOUNDS.height,
+                                     size: 10, value: 10
+                                 });
+                            }
+                         }, 10000); // Respawn after 10 seconds
+                         return; // Interact with only one thing per press
+                     }
+                 });
+                 currentEntity.lastActionTime.interact = now; // Cooldown even if nothing found
+             }
+         }
+
+         function updateBots() {
+             Object.entries(bots).forEach(async ([id, bot]) => {
+                 if (bot.health <= 0) return; // Skip dead bots
+
+                 const botSenses = getSenseValues(bot);
+
+                 try {
+                     // Get actions from the bot's internal hierarchy
+                     // getAction is now async because processStep is async
+                     const botActions = await bot.stcBotInstance.getAction(botSenses);
+
+                     // --- Apply Bot Actions ---
+                     const moveX = botActions.moveX?.[0] ?? 0; // Action values are arrays now
+                     const moveY = botActions.moveY?.[0] ?? 0;
+                     const lookX = botActions.lookX?.[0] ?? 0;
+                     const run = (botActions.run?.[0] ?? 0) > 0.5;
+                     const speed = run ? BOT_SPEED * 1.5 : BOT_SPEED;
+
+                     bot.angle = normalizeAngle(bot.angle + lookX * PLAYER_TURN_SPEED * 0.8); // Slightly slower turn?
+
+                     const moveMagnitude = Math.sqrt(moveX*moveX + moveY*moveY);
+                     const moveAngle = Math.atan2(moveY, moveX);
+                     const worldMoveAngle = normalizeAngle(bot.angle + moveAngle - Math.PI / 2);
+
+                     let dx = 0;
+                     let dy = 0;
+                      if (moveMagnitude > 0.1) { // Apply deadzone
+                         dx = Math.cos(worldMoveAngle) * speed * Math.min(1, moveMagnitude);
+                         dy = Math.sin(worldMoveAngle) * speed * Math.min(1, moveMagnitude);
+                      }
+
+                     bot.x += dx;
+                     bot.y += dy;
+                     bot.x = Math.max(0, Math.min(WORLD_BOUNDS.width, bot.x));
+                     bot.y = Math.max(0, Math.min(WORLD_BOUNDS.height, bot.y));
+
+                     // Bot Action Logic (Attack, Interact)
+                     const now = Date.now();
+                     if (!bot.lastActionTime) bot.lastActionTime = {};
+
+                     if ((botActions.attack?.[0] ?? 0) > 0.5 && bot.ammo > 0 && (!bot.lastActionTime.attack || now - bot.lastActionTime.attack > 300)) {
+                         bot.ammo--;
+                         bullets.push({
+                             x: bot.x + Math.cos(bot.angle - Math.PI / 2) * 15,
+                             y: bot.y + Math.sin(bot.angle - Math.PI / 2) * 15,
+                             angle: bot.angle,
+                             owner: id
+                         });
+                         bot.lastActionTime.attack = now;
+                     }
+
+                     if ((botActions.interact?.[0] ?? 0) > 0.5 && (!bot.lastActionTime.interact || now - bot.lastActionTime.interact > 500)) {
+                         ammoPacks.forEach((pack, index) => {
+                             if (distance(bot.x, bot.y, pack.x, pack.y) < 20) {
+                                 bot.ammo = Math.min(MAX_AMMO, bot.ammo + pack.value);
+                                 ammoPacks.splice(index, 1);
+                                  bot.lastActionTime.interact = now;
+                                  // Respawn
+                                   setTimeout(() => {
+                                      if(ammoPacks.length < 5) {
+                                          ammoPacks.push({
+                                              x: Math.random() * WORLD_BOUNDS.width,
+                                              y: Math.random() * WORLD_BOUNDS.height,
+                                              size: 10, value: 10
+                                          });
+                                      }
+                                   }, 10000);
+                                 return;
+                             }
+                         });
+                          bot.lastActionTime.interact = now;
+                     }
+
+
+                 } catch(error) {
+                     console.error(`Error updating bot ${id}:`, error);
+                 }
+             });
+         }
+
+
+        function updateBullets() {
+            bullets = bullets.filter(bullet => {
+                bullet.x += Math.cos(bullet.angle - Math.PI / 2) * BULLET_SPEED;
+                bullet.y += Math.sin(bullet.angle - Math.PI / 2) * BULLET_SPEED;
+
+                // Check collisions
+                // Player hit by bot bullet?
+                if (bullet.owner !== 'player' && bots[bullet.owner]) { // Check if owner bot exists
+                    if (!player.isBotControlled && distance(player.x, player.y, bullet.x, bullet.y) < 10) {
+                        player.health -= 10;
+                        console.log("Player hit!");
+                         if (player.health <= 0) { console.log("Player died!"); player.health = 0; /* Handle death */ }
+                        return false; // Remove bullet
+                    }
+                     // Check collision with other bots (friendly fire off for simplicity)
+                }
+                // Bot hit by player bullet (or bot controlling player)?
+                else if (bullet.owner === 'player' || (player.isBotControlled && bullet.owner === player.targetBotId)) {
+                     const shooterId = player.isBotControlled ? player.targetBotId : 'player';
+                     let hit = false;
+                     Object.entries(bots).forEach(([id, bot]) => {
+                         // Ensure bot doesn't shoot itself if player is controlling it
+                         if (id !== shooterId && bot.health > 0 && distance(bot.x, bot.y, bullet.x, bullet.y) < 10) {
+                             bot.health -= 10;
+                             console.log(`Bot ${id} hit!`);
+                             if (bot.health <= 0) { console.log(`Bot ${id} died!`); bot.health = 0; /* Handle death */ }
+                             hit = true;
+                         }
+                     });
+                     if(hit) return false; // Remove bullet
+                }
+
+
+                // Check world bounds
+                return bullet.x > 0 && bullet.x < WORLD_BOUNDS.width && bullet.y > 0 && bullet.y < WORLD_BOUNDS.height;
+            });
+        }
+
+        // --- Drawing ---
+         function drawPlayer(entity, isControlled) {
+             if (entity.health <= 0) return;
+             ctx.save();
+             ctx.translate(entity.x, entity.y);
+             ctx.rotate(entity.angle);
+             // Body
+             ctx.fillStyle = isControlled ? '#00FF00' : '#00AA00'; // Bright green if player controlled
+             ctx.fillRect(-10, -10, 20, 20);
+             // Turret / Direction indicator
+             ctx.fillStyle = '#FFFF00';
+             ctx.fillRect(-2, -15, 4, 10);
+             ctx.restore();
+
+             // Health bar
+             ctx.fillStyle = 'red';
+             ctx.fillRect(entity.x - 15, entity.y - 25, 30, 5);
+             ctx.fillStyle = 'green';
+             ctx.fillRect(entity.x - 15, entity.y - 25, 30 * (entity.health / 100), 5);
+             // Ammo text
+             ctx.fillStyle = 'white';
+             ctx.font = '10px sans-serif';
+             ctx.fillText(`A:${entity.ammo}`, entity.x - 15, entity.y - 30);
+         }
+
+         function drawBot(id, bot) {
+            if (bot.health <= 0) return;
+             ctx.save();
+             ctx.translate(bot.x, bot.y);
+             ctx.rotate(bot.angle);
+             // Body (Red for bots)
+             ctx.fillStyle = (player.isBotControlled && player.targetBotId === id) ? '#FFAAAA' : '#AA0000'; // Lighter red if controlled by player
+             ctx.fillRect(-10, -10, 20, 20);
+             // Turret
+             ctx.fillStyle = '#FF8888';
+             ctx.fillRect(-2, -15, 4, 10);
+             ctx.restore();
+              // Health bar
+             ctx.fillStyle = 'red';
+             ctx.fillRect(bot.x - 15, bot.y - 25, 30, 5);
+             ctx.fillStyle = 'green';
+             ctx.fillRect(bot.x - 15, bot.y - 25, 30 * (bot.health / 100), 5);
+               // Ammo text
+             ctx.fillStyle = 'white';
+             ctx.font = '10px sans-serif';
+             ctx.fillText(`A:${bot.ammo}`, bot.x - 15, bot.y - 30);
+              // Skill level text?
+             ctx.fillText(`S:${bot.stcBotInstance?.skillLevel?.toFixed(1) ?? 'N/A'}`, bot.x - 15, bot.y - 40);
+
+         }
+
+        function drawBullets() {
+            ctx.fillStyle = '#FFFFFF';
+            bullets.forEach(bullet => {
+                ctx.fillRect(bullet.x - 2, bullet.y - 2, 4, 4);
+            });
+        }
+
+        function drawAmmoPacks() {
+            ctx.fillStyle = '#00FFFF';
+            ammoPacks.forEach(pack => {
+                ctx.beginPath();
+                ctx.arc(pack.x, pack.y, pack.size, 0, Math.PI * 2);
+                ctx.fill();
+            });
+        }
+
+         function drawDebugInfo() {
+             let info = `Player: Pos(${player.x.toFixed(0)}, ${player.y.toFixed(0)}) Angle(${(player.angle * 180 / Math.PI).toFixed(0)}deg) HP:${player.health} Ammo:${player.ammo} ${player.isBotControlled ? '(BOT CONTROL)' : ''}<br>`;
+             info += `Bots: ${Object.keys(bots).length} | Bullets: ${bullets.length} | AmmoPacks: ${ammoPacks.length}<br>`;
+             info += `Pointer Lock: ${document.pointerLockElement === canvas}<br><hr>`;
+
+             if (playerHierarchy && playerHierarchy.levelAnomalies) {
+                 info += "Player Hierarchy Anomalies:<br>";
+                 playerHierarchy.levelAnomalies.forEach((anomaly, i) => {
+                     info += `&nbsp;&nbsp;Level ${i}: ${anomaly.toFixed(5)}<br>`;
+                 });
+                  info += `<hr>`;
+             }
+
+             Object.entries(bots).forEach(([id, bot]) => {
+                 info += `Bot ${id}: Pos(${bot.x.toFixed(0)}, ${bot.y.toFixed(0)}) HP:${bot.health} Ammo:${bot.ammo} Skill:${bot.stcBotInstance?.skillLevel?.toFixed(1) ?? 'N/A'}<br>`;
+                 if (bot.stcBotInstance?.currentAnomalies) {
+                     bot.stcBotInstance.currentAnomalies.forEach((anomaly, i) => {
+                         info += `&nbsp;&nbsp;L${i} Anomaly: ${anomaly.toFixed(5)}<br>`;
+                     });
+                 }
+             });
+
+             debugInfo.innerHTML = info;
+         }
+
+        function draw() {
+            // Clear canvas
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Draw game elements
+            drawAmmoPacks();
+            drawPlayer(player, !player.isBotControlled); // Draw main player representation
+             Object.entries(bots).forEach(([id, bot]) => {
+                 if (player.isBotControlled && player.targetBotId === id) {
+                    drawPlayer(bot, true); // Draw the bot being controlled as if it's the player
+                 } else {
+                    drawBot(id, bot);
+                 }
+             });
+            drawBullets();
+
+            // Draw debug info
+            drawDebugInfo();
+        }
+
+        // --- Game Loop ---
+        let lastTimestamp = 0;
+        async function gameLoop(timestamp) {
+            const deltaTime = timestamp - lastTimestamp;
+            lastTimestamp = timestamp;
+
+            // --- 1. Update Input State ---
+            updateGamepadState(); // Read gamepad state
+            // Mouse state (dx, dy) is updated via event listener, consumed in getActionValue
+            // Keyboard state updated via listeners
+            // Touch state updated via listeners
+
+            // --- 2. Gather Player Actions ---
+            const playerActions = {};
+             actionStreamNames.forEach(name => {
+                 // Get action value, clamp or normalize if necessary
+                 let val = getActionValue(name);
+                 // Simple clamping for this example
+                 if (name === 'moveX' || name === 'moveY') val = Math.max(-1, Math.min(1, val));
+                 // Action buttons are usually 0 or 1
+                 if (['run', 'jump', 'attack', 'special', 'interact', 'burst'].includes(name)) val = val > 0 ? 1 : 0;
+
+                 playerActions[name] = [val]; // Store as array for STCH library
+             });
+
+
+             // --- 3. Gather Player/Controlled Bot Senses ---
+              const controllingEntity = player.isBotControlled ? bots[player.targetBotId] : player;
+              let playerSenses = {};
+              if(controllingEntity) { // Make sure entity exists
+                  playerSenses = getSenseValues(controllingEntity);
+              } else {
+                  // Handle case where controlled bot might have died
+                  player.isBotControlled = false;
+                  player.targetBotId = null;
+                  playerSenses = getSenseValues(player); // Fallback to player senses
+              }
+
+
+            // --- 4. Process Player STCH ---
+            let botSpawnedThisFrame = null;
+            if (playerHierarchy) {
+                const stchInput = { ...playerSenses, ...playerActions };
+                try {
+                    // processStep is async due to potential background training triggers
+                    const results = await playerHierarchy.processStep(stchInput);
+                     // console.log("Player Anomalies:", results.anomalies); // Optional: Log anomalies
+                    if (results.botSpawned) {
+                        botSpawnedThisFrame = results.botSpawned;
+                    }
+                } catch (error) {
+                    console.error("Error processing player hierarchy:", error);
+                     // Handle error gracefully, e.g., skip STCH processing for this frame
+                }
+
+            }
+
+             // --- 5. Handle Bot Spawning ---
+             if (botSpawnedThisFrame) {
+                 const botId = `bot_${nextBotId++}`;
+                 const newBot = new Bot(botId, botSpawnedThisFrame, actionStreamNames); // Create Bot wrapper
+
+                 // Spawn bot in game world
+                 bots[botId] = {
+                     x: Math.random() * WORLD_BOUNDS.width,
+                     y: Math.random() * WORLD_BOUNDS.height,
+                     angle: Math.random() * Math.PI * 2,
+                     health: 100,
+                     ammo: MAX_AMMO,
+                     targetPlayer: true, // Bots target player by default
+                     stcBotInstance: newBot,
+                     lastActionTime: {}
+                 };
+                 console.log(`Spawned ${botId}`);
+             }
+
+            // --- 6. Update Player/Controlled Bot Game State ---
+            if (player.health > 0) { // Only update if alive
+                 if (player.isBotControlled) {
+                      if (bots[player.targetBotId] && bots[player.targetBotId].health > 0) {
+                         // If bot controlled, use the *player's* actions to move the bot
+                         updatePlayer(playerActions);
+                      } else {
+                         // Controlled bot died or doesn't exist, switch back to player
+                         console.log("Controlled bot died or invalid. Reverting to player control.");
+                         player.isBotControlled = false;
+                         player.targetBotId = null;
+                         updatePlayer(playerActions); // Update player with own actions
+                      }
+                 } else {
+                     // Normal player control
+                     updatePlayer(playerActions);
+                 }
+            }
+
+
+            // --- 7. Update Independent Bots ---
+            // Use await Promise.all if updateBots becomes significantly async
+            await updateBots(); // updateBots now handles async getAction
+
+
+            // --- 8. Update Bullets & Collisions ---
+            updateBullets();
+
+            // --- 9. Drawing ---
+            draw();
+
+            // --- 10. Handle Player Control Switch (Debug) ---
+             if (keys['p'] && !player.switchCooldown) { // 'P' key to possess/unpossess bot
+                  player.switchCooldown = true; // Prevent rapid switching
+                 setTimeout(() => { player.switchCooldown = false; }, 500); // 0.5s cooldown
+
+                 if (player.isBotControlled) {
+                     // Switch back to player
+                     console.log("Switching control back to Player");
+                     player.isBotControlled = false;
+                     player.targetBotId = null;
+                 } else {
+                     // Find the first available bot to control
+                     const availableBots = Object.entries(bots).filter(([id, bot]) => bot.health > 0);
+                      if (availableBots.length > 0) {
+                          player.targetBotId = availableBots[0][0]; // Get the ID of the first alive bot
+                          console.log(`Switching control to ${player.targetBotId}`);
+                          player.isBotControlled = true;
+                          // Copy bot's state to player state? Or just use bot's state directly?
+                          // For simplicity, we use the bot's state via `controllingEntity` logic.
+                      } else {
+                          console.log("No alive bots to control.");
+                      }
+                 }
+             }
+
+
+            // Request next frame
+            requestAnimationFrame(gameLoop);
+        }
+
+        // --- Initialization ---
+        async function init() {
+            debugInfo.textContent = "Initializing STCH...";
+            console.log("Waiting for tfjs backend...");
+            await tf.ready(); // Ensure tfjs backend is ready
+            console.log(`TFJS Backend: ${tf.getBackend()}`);
+             tf.setBackend('webgl'); // Or 'wasm' or 'cpu'
+             console.log(`TFJS Backend after set: ${tf.getBackend()}`);
+
+            // Define streams config
+             const streamConfig = {};
+             senseStreamNames.forEach(name => streamConfig[name] = 1); // Assuming all senses are 1D for now
+             actionStreamNames.forEach(name => streamConfig[name] = 1); // Assuming all actions are 1D
+
+              // Adjust dimensions if needed (e.g., position needs 2D)
+             streamConfig['playerX'] = 1; // Separate X
+             streamConfig['playerY'] = 1; // Separate Y
+              // Remove single 'playerPos' if using separate X/Y
+             // Make sure getSenseValues reflects this structure!
+
+            // Re-evaluate sense/action names and dimensions based on actual usage:
+             const finalStreamConfig = {
+                 // Senses (mostly normalized scalars)
+                 'playerX': 1, 'playerY': 1, 'playerAngle': 1, 'playerHealth': 1, 'playerAmmo': 1,
+                 'nearestEnemyDist': 1, 'nearestEnemyAngle': 1, 'nearestAmmoDist': 1, 'nearestAmmoAngle': 1,
+                 // Actions (mostly normalized scalars or binary flags)
+                 'moveX': 1, 'moveY': 1, 'lookX': 1, //'lookY': 1, // Removed for 2D
+                 'run': 1, 'jump': 1, 'attack': 1, 'special': 1, 'interact': 1, 'burst': 1
+             };
+
+
+            const hierarchyConfig = {
+                streams: finalStreamConfig,
+                hierarchyParams: [ // Define layers: encoding size and anomaly threshold
+                    { encodingDim: 48, anomalyThreshold: 0.08 }, // Lower level, larger encoding
+                    { encodingDim: 24, anomalyThreshold: 0.04 },
+                    { encodingDim: 12, anomalyThreshold: 0.02 }  // Higher level, smaller encoding
+                ],
+                learningRate: 0.005, // Adjusted learning rate
+                stabilityWindow: 150, // Steps for stability check
+                stabilityThreshold: 0.005, // Lower threshold for bot spawning
+                botSpawnCooldown: 300 // Steps between spawns
+            };
+
+            try {
+                 playerHierarchy = new STCHierarchy(hierarchyConfig, tf);
+
+                 if (!playerHierarchy.isBuilt) {
+                      throw new Error("Player hierarchy failed to build. Check stream configuration and dimensions.");
+                 }
+
+                 console.log("STCH Hierarchy initialized:", playerHierarchy);
+                 debugInfo.textContent = "Ready!";
+
+                 setupInputListeners();
+                 requestAnimationFrame(gameLoop); // Start the game loop
+
+            } catch (error) {
+                 console.error("Initialization failed:", error);
+                 debugInfo.textContent = `Error: ${error.message}. Check console.`;
+                 // Display error prominently or prevent game start
+            }
+        }
+
+        // Start initialization when the window loads
+        window.onload = init;
+
+    </script>
+</body>
+</html>
+
