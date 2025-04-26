@@ -148,6 +148,7 @@ Refined Bot Behavior: Implement more complex goal-seeking behavior for bots usin
 
 External Data Analysis: Use the logged Danfo.js DataFrames for offline analysis of learning progress and anomalies.
 
+# vibe coding prompt
 ```
 first you can search spatiotemporal cortical hierarchy.
 
