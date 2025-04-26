@@ -1,4 +1,4 @@
- # Abyssal Arena: Echoes of Descent - Project README
+ # Abyssal Arena: Echoes of Descent - Project
 
  ## Introduction
 
@@ -161,3 +161,50 @@ npm start
  *   More sophisticated LLM-driven narrative systems.
  *   Performance optimization and scaling for large player counts.
  *   Expanded world content and lore integration.
+
+# vide codimg prompt for cortical library
+```
+first you can search spatiotemporal cortical hierarchy.
+
+make game library where tfjs and danfojs, which collecting what user sense and how user act. user data can be mobile and desktop controls.
+make single html file game example where to use this library.
+first make plan then make code.
+make library able to connect any number of actions and senses from user and from game state which user senses. what player try to do are his action, but how his action appear in game are senses.
+make temporary spatial hierarchical levels of sensory cortex and motor cortex, because player may try to move through wall l it will be action, but he will sense that there no movement because wall not movable.
+collect dataframe of actions and senses.
+process dataframe via temporary spatial hierarchical levels.
+first level is encoding all senses and actions.
+so on upper levels will be formed patterns.
+make predictions of what will be inputs on lower levels based on outputs of higher levels, so from outputs from highest level by this backward way will be formed prediction of next dataframe of user actions and senses which are on lowest level inputs.
+form anomaly scores between predicted and actual state on every cortical level.
+
+predictions on dataframe will become next possible actions. and if senses and actions okay with predictions then no anomaly, but if anomaly then relearn new patterns.
+after no anomalies long time spawn bot forked from what neural network learned on how player actions lead to which changes in senses, so it will act as player but as separate bot. so for bot will be also its actions and senses in dataframe and predictions with anomalies, how bot is good in predicting and how low anomalies is bot level, higher level anomalies more important in calculating of bot skill level, it may be how much sigma, level of significance.
+also make player debug ability to switch to bot mode.
+training and finetunnig should be asynchronously automatically processed when needed.
+every anomaly calculated when new action and senses ready.
+make same anomaly score for player as for bot. and spawn bot when skill level increased by one on skill scale restart this skill level increase calculation every time when skill level falls, so prediction goes to next level.
+
+make some playable game demo, to show actions how to interact and senses what in world can be changed any time outside of library and library should adapt. there will be llm tool tool_creation_tool (https://github.com/neuroidss/ToolArtifact) which will make all other llm tools and will be tool to create artifacts from any tool and these artifacts will be used by players and bot to sense and act in mmorpg. and then will be added brain computer interface on base of 32 channel EEG and ingame llm will search science articles about working memory in brain and will feed eeg data to this new anomaly predictions library, so eeg will be next possible sensory and actions data, and bots will have artifacts to sense players intentions directly from players eeg, and players will adapt to this super predictions, as even players themself don't know their intentions fully but bots will know from players eeg.
+
+make easy to add like eeg or emg into senses or electrical stimulation of brain or muscles or vibromotor sensory substitution to actions.
+main to make fully functional library with ability to predict and ability to make trained model clone to drive bots. all other game example is not important but just show what will be in full game using this library.
+
+not include any game specific inside library. library should be universal framework, fully implement most important features of library for most flexibility and dynamic changes.
+
+must be single js file with library. make example of use where to show most important features which can't be done without this library. make readme for github with spaces before blocks to not break chat markdown, don't place on first column inside readme. make sh files how to setup and run example.
+
+in library should be no difference between actions and senses as all them creating anomaly detection, and actions are just what used to move bots. make in game example ability to play with touchscreen mobile ready, keyboard, mouse.
+
+make absolutely no difference between senses and actions inside library, as cortex mot make this difference. and cortex makes predictions on both of them, and only outside of cortex there periphery decides what only sensing and what only acting. actions are just predictions for cortex, senses restored via predictions to make senses more stable with less information from environment using more stable patterns.
+
+make streams adding and removing available any time, like make for new stream additional proportional part in layers, so make ability to resize, scale layers if necessary. make first layers for each stream more connected with this stream but later all streams interconnected on higher levels. make also ability to change type of layer if possible.
+
+use dataframes only outside of cortex for faster processing.
+
+maybe decide when to add additional levels of hierarchy, is child when learning first having less hierarchy levels than adults. so at start it may be less levels for faster starting to get result, but at some point when not enough effectivity increase then make more cortical levels.
+
+add touchscreen controls for mobile.
+
+
+```
