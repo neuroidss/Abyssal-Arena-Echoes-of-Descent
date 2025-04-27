@@ -26,7 +26,7 @@
  ## Technology Stack (Initial Plan - Flexible for Jam)
 
  *   **Game Engine:** Phaser.js (for 2D web-based focus) or Three.js/Babylon.js (if aiming for 2.5D/3D later). Choose based on team expertise and MVP1 goals.
- *   **Cortical Library:** Custom Vanilla JS library (potentially using tfjs/danfojs for internal tensor/dataframe operations if needed, but should ideally be self-contained for ease of use).
+ *   **Cortical Library:** Custom JS library (using tfjs).
  *   **ToolArtifact:** Requires API access to a capable LLM (e.g., via OpenAI API, Google AI API, local model endpoint) and the ToolArtifact wrapper/interface.
  *   **Server:** Node.js with WebSockets (e.g., Socket.IO) for multiplayer communication.
  *   **Database:** Simple DB (like SQLite, MongoDB) for player state persistence.
