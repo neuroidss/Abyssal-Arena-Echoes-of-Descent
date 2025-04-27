@@ -6,7 +6,7 @@
 
  This game leverages two key custom technologies:
 
- 1.  **Cortical Library:** A JavaScript library (using tfjs/danfojs concepts internally, but self-contained) that processes player actions and perceived game state changes through a hierarchical, predictive model. It calculates 'Anomaly' scores based on prediction errors and can spawn 'Echo' bots that mimic learned player patterns.
+ 1.  **Cortical Library:** A JavaScript library (using tfjs) that processes player actions and perceived game state changes through a hierarchical, predictive model. It calculates 'Anomaly' scores based on prediction errors and can spawn 'Echo' bots that mimic learned player patterns.
  2.  **ToolArtifact (LLM Tool):** A specialized Large Language Model tool designed to generate other in-game tools, items, and potentially narrative elements ('Artifacts') based on complex contexts derived from gameplay and the Cortical Library's analysis.
 
  We will follow an iterative MVP (Minimum Viable Product) approach, ensuring we have a playable and demonstrable increment at each stage, much like building a skateboard before aiming for a car.
