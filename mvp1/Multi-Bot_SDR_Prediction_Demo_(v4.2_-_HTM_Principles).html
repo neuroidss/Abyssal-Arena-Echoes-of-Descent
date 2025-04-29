@@ -1,0 +1,1483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Multi-Bot SDR Prediction Demo (v4.2 - HTM Principles)</title>
+    <!-- No external libraries needed -->
+    <style>
+        /* --- CSS Styles --- */
+        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; margin: 0; padding: 10px; box-sizing: border-box; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; line-height: 1.4; background-color: #f0f0f0; }
+        canvas { border: 1px solid black; margin-bottom: 10px; display: block; max-width: 100%; height: auto; touch-action: none; background-color: #fff; }
+        .main-container { display: flex; flex-direction: row; flex-wrap: wrap; align-items: flex-start; width: 100%; max-width: 1500px; justify-content: center; gap: 20px; }
+        .grid-container { flex-basis: 600px; flex-grow: 1; max-width: 800px; min-width: 300px; display: flex; justify-content: center; align-items: center; }
+        .controls-and-info { display: flex; flex-direction: column; flex-basis: 450px; flex-grow: 1; min-width: 320px; max-width: 600px; background-color: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        .simulation-controls button, .param-controls button { margin: 5px 3px; padding: 8px 12px; cursor: pointer; border: none; border-radius: 4px; background-color: #3498db; color: white; font-size: 0.9em; }
+        .simulation-controls button:hover, .param-controls button:hover { background-color: #2980b9; }
+        .simulation-controls button:disabled, .param-controls button:disabled { background-color: #bdc3c7; cursor: not-allowed; }
+        #stopButton { background-color: #e74c3c; }
+        #stopButton:hover { background-color: #c0392b; }
+        #resetRoundButton, #resetFullButton { background-color: #f39c12; }
+        #resetRoundButton:hover, #resetFullButton:hover { background-color: #e67e22; }
+        #saveParamsButton, #loadParamsButton, #resetParamsButton { background-color: #2ecc71; font-size: 0.85em; padding: 6px 10px;}
+        #saveParamsButton:hover, #loadParamsButton:hover, #resetParamsButton:hover { background-color: #27ae60; }
+
+        .parameters { border: 1px solid #ccc; padding: 15px; margin-bottom: 15px; background-color: #f9f9f9; border-radius: 5px; }
+        .parameters h3 { margin-top: 0; margin-bottom: 15px; font-size: 1.1em; border-bottom: 1px solid #eee; padding-bottom: 5px; }
+        .parameters div.param-item { margin-bottom: 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 5px 10px; font-size: 0.9em; }
+        .parameters label { display: inline-block; min-width: 160px; font-weight: 500; flex-shrink: 0; }
+        .parameters input[type=number], .parameters input[type=text] { width: 70px; padding: 5px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 3px; font-size: 1em; }
+        .parameters .tooltip { display: inline-block; background-color: #bbb; border-radius: 50%; width: 16px; height: 16px; text-align: center; line-height: 16px; font-size: 12px; color: white; font-weight: bold; vertical-align: middle; cursor: help; position: relative; margin-left: 3px; }
+        .parameters .reset-needed-hint { font-style: italic; font-size: 0.8em; color: #e67e22; margin-left: 5px; display: none; white-space: nowrap; }
+        .parameters div.needs-reset-all .reset-needed-hint,
+        .parameters div.needs-new-round .reset-needed-hint { display: inline; }
+        .tooltip .tooltiptext { visibility: hidden; width: 220px; background-color: black; color: #fff; text-align: center; border-radius: 6px; padding: 5px; position: absolute; z-index: 1; bottom: 125%; left: 50%; margin-left: -110px; opacity: 0; transition: opacity 0.3s; font-size: 0.85em; font-weight: normal; line-height: normal; }
+        .tooltip:hover .tooltiptext { visibility: visible; opacity: 1; }
+
+        .info { display: flex; flex-direction: column; gap: 12px; margin-top: 15px; }
+        .bot-type-info { border: 1px solid #eee; padding: 10px; font-size: 0.9em; background-color: #fdfdfd; border-radius: 4px; }
+        .bot-type-info b { display: block; margin-bottom: 5px; font-size: 1.05em;}
+        .stats { margin-top: 15px; font-weight: bold; padding: 12px; background-color: #eef; border-radius: 5px; font-size: 0.95em; line-height: 1.5; }
+        pre { background-color: #f0f0f0; padding: 5px; font-size: 0.8em; max-height: 80px; overflow-y: auto; white-space: pre-wrap; word-wrap: break-word; border: 1px solid #ddd; border-radius: 3px; }
+        .frozen-status { color: #0077cc; font-weight: bold; border: 1px dashed #0077cc; padding: 1px 3px; border-radius: 3px; display: inline-block; font-size: 0.85em; }
+        hr { width: 100%; margin: 20px 0; border: 0; border-top: 1px solid #ccc; }
+
+        .library-param-label { font-weight: bold; color: #2980b9; }
+        .needs-reset-all h3::after { content: ' (Reset All Req.)'; font-size: 0.8em; color: #e67e22; font-style: italic; margin-left: 5px;}
+        .needs-new-round h3::after { content: ' (New Round Req.)'; font-size: 0.8em; color: #e67e22; font-style: italic; margin-left: 5px;}
+        .param-group { border: 1px dashed #ddd; padding: 10px; margin-bottom: 12px; border-radius: 4px; }
+        .param-group h4 { margin-top: 0; margin-bottom: 10px; font-size: 1em; color: #555; }
+        #status, #round-info { margin-top: 8px; font-weight: bold; }
+        #status { font-size: 1.1em; }
+        #round-info { font-size: 1em; color: #555;}
+
+        /* Ensure Tooltips work on touch */
+        .tooltip:focus .tooltiptext,
+        .tooltip:active .tooltiptext { visibility: visible; opacity: 1; }
+    </style>
+</head>
+<body>
+    <h1>Multi-Bot SDR Prediction Demo (v4.2 - HTM Principles)</h1>
+    <p style="max-width: 800px; text-align: center; margin-bottom: 20px;">Bots navigate a grid to claim goals (Action 5 Req.). Learning Bots (Red) use a hierarchical library (inspired by HTM principles: SDRs, SP, TM, Anomaly Learning) to predict streams and learn. Hardcoded Bots (Blue) use fixed rules. Bots can Punch (Action 4) to freeze opponents. Configure parameters below.</p>
+    <p style="font-size:0.9em; color: #e74c3c;"><i>Warning: High SDR dimensions/levels significantly impact performance. Use smaller values for smoother experience.</i></p>
+
+    <div class="main-container">
+        <div class="grid-container">
+            <canvas id="gridCanvas"></canvas>
+        </div>
+
+        <div class="controls-and-info">
+             <div class="simulation-controls">
+                <button id="startButton" title="Start Simulation">Start</button>
+                <button id="stopButton" disabled title="Stop Simulation">Stop</button>
+                <button id="resetRoundButton" title="Start a New Round with Current Settings">New Round</button>
+                <button id="resetFullButton" title="Reset Environment and Learning Model">Reset All</button>
+                <div id="status">Status: Idle</div>
+                <div id="round-info">Round: 0</div>
+            </div>
+            <hr>
+            <div class="parameters">
+                 <h3>Simulation Parameters</h3>
+                 <div class="param-group">
+                     <div data-param="speed" class="param-item">
+                         <label for="param-speed">Sim Speed (ms delay):</label>
+                         <input type="number" id="param-speed" min="1" max="1000" step="10">
+                         <button id="updateSpeedButton" style="margin-left: auto; font-size: 0.8em; padding: 4px 8px;" title="Apply Speed Change Immediately">Update Speed</button>
+                         <span class="tooltip" tabindex="0">?<span class="tooltiptext">Delay between simulation steps. Lower is faster (1ms allows max speed). Updates immediately.</span></span>
+                     </div>
+                     <div data-param="freeze" class="param-item">
+                         <label for="param-freeze">Freeze Duration (steps):</label>
+                         <input type="number" id="param-freeze" min="1" max="100">
+                         <span class="tooltip" tabindex="0">?<span class="tooltiptext">How long a bot stays frozen after being punched. Updates immediately.</span></span>
+                     </div>
+                 </div>
+
+                 <hr>
+                 <h3 class="needs-reset-all">Environment (Reset All Req.)</h3>
+                 <div class="param-group needs-reset-all">
+                     <div data-param="grid" class="param-item">
+                         <label for="param-grid">Grid Size:</label>
+                         <input type="number" id="param-grid" min="15" max="80">
+                         <span class="tooltip" tabindex="0">?<span class="tooltiptext">Width/Height of the grid. Larger grids increase distance & complexity. Requires 'Reset All'.</span></span>
+                         <span class="reset-needed-hint">(Reset Req.)</span>
+                     </div>
+                     <div data-param="goals" class="param-item">
+                         <label for="param-goals">Num Goals:</label>
+                         <input type="number" id="param-goals" min="1" max="50">
+                         <span class="tooltip" tabindex="0">?<span class="tooltiptext">Number of goals per round. More goals can change bot strategy. Requires 'Reset All'.</span></span>
+                         <span class="reset-needed-hint">(Reset Req.)</span>
+                     </div>
+                     <div data-param="hc-bots" class="param-item">
+                         <label for="param-hc-bots">Num Hardcoded Bots:</label>
+                         <input type="number" id="param-hc-bots" min="0" max="10">
+                         <span class="tooltip" tabindex="0">?<span class="tooltiptext">Number of blue (purely rule-based) bots. Requires 'Reset All'.</span></span>
+                         <span class="reset-needed-hint">(Reset Req.)</span>
+                     </div>
+                     <div data-param="learning-bots" class="param-item">
+                         <label for="param-learning-bots">Num Learning Bots:</label>
+                         <input type="number" id="param-learning-bots" min="0" max="10">
+                         <span class="tooltip" tabindex="0">?<span class="tooltiptext">Number of red (learning) bots. Use prediction library. Requires 'Reset All'.</span></span>
+                         <span class="reset-needed-hint">(Reset Req.)</span>
+                     </div>
+                 </div>
+
+                 <hr>
+                 <h3 class="needs-new-round">Round Setup (New Round Req.)</h3>
+                 <div class="param-group needs-new-round">
+                     <div data-param="max-steps" class="param-item">
+                         <label for="param-max-steps">Max Steps/Round:</label>
+                         <input type="number" id="param-max-steps" min="100" max="10000">
+                         <span class="tooltip" tabindex="0">?<span class="tooltiptext">Max steps per bot before round ends automatically. Limits learning time per round. Requires 'New Round'.</span></span>
+                         <span class="reset-needed-hint">(New Round Req.)</span>
+                     </div>
+                 </div>
+
+                 <hr>
+                 <h3 class="needs-reset-all">SDR Library & Sensing (Reset All Req.)</h3>
+                 <div data-param="vis-range" class="param-item needs-reset-all">
+                     <label for="param-vis-range">Sense Visibility Range:</label>
+                     <input type="number" id="param-vis-range" min="2" max="20">
+                     <span class="tooltip" tabindex="0">?<span class="tooltiptext">How far bots sense goals/opponents. Affects Encoder complexity and input stream richness. Requires 'Reset All'.</span></span>
+                     <span class="reset-needed-hint">(Reset Req.)</span>
+                 </div>
+                 <!-- Library Structure Parameters -->
+                 <div class="param-group needs-reset-all">
+                     <h4>Library Structure (HTM Inspired)</h4>
+                     <div data-param="sdr-size" class="param-item">
+                        <label class="library-param-label" for="param-sdr-size">Encoder SDR Size:</label>
+                        <input type="number" id="param-sdr-size" min="512" max="8192" step="128">
+                        <span class="tooltip" tabindex="0">?<span class="tooltiptext">Total dimension of the input SDR (Sparse Distributed Representation) produced by the StreamEncoder (input to Level 0). Larger allows more features but increases computation. Requires 'Reset All'.</span></span>
+                        <span class="reset-needed-hint">(Reset Req.)</span>
+                     </div>
+                     <div data-param="sdr-active" class="param-item">
+                        <label class="library-param-label" for="param-sdr-active">Encoder SDR Active Bits (~):</label>
+                        <input type="number" id="param-sdr-active" min="10" max="160" step="2">
+                        <span class="tooltip" tabindex="0">?<span class="tooltiptext">Target number of active bits (~2% sparsity) in the Encoder's output SDR. SDRs use sparse, distributed patterns for efficiency and noise tolerance. Requires 'Reset All'.</span></span>
+                        <span class="reset-needed-hint">(Reset Req.)</span>
+                     </div>
+                      <div data-param="levels" class="param-item">
+                        <label class="library-param-label" for="param-levels">Hierarchy Levels:</label>
+                        <input type="number" id="param-levels" min="1" max="5">
+                        <span class="tooltip" tabindex="0">?<span class="tooltiptext">Number of SP/TM layers in the hierarchy. More levels allow higher abstraction (patterns of patterns) but significantly increase computation. Output of one layer feeds the next. Requires 'Reset All'.</span></span>
+                        <span class="reset-needed-hint">(Reset Req.)</span>
+                     </div>
+                     <div data-param="sp-columns" class="param-item">
+                        <label class="library-param-label" for="param-sp-columns">Columns per Level (SP):</label>
+                        <input type="number" id="param-sp-columns" min="256" max="4096" step="64">
+                        <span class="tooltip" tabindex="0">?<span class="tooltiptext">Number of 'columns' in each Spatial Pooler (SP) layer. Represents the dimensionality of the learned spatial patterns at that level. Requires 'Reset All'.</span></span>
+                        <span class="reset-needed-hint">(Reset Req.)</span>
+                     </div>
+                     <div data-param="col-active" class="param-item">
+                        <label class="library-param-label" for="param-col-active">Active Columns (~):</label>
+                        <input type="number" id="param-col-active" min="5" max="80" step="1">
+                        <span class="tooltip" tabindex="0">?<span class="tooltiptext">Target number of active columns (~2% sparsity) output by each SP layer via inhibition. Enforces sparse internal SDRs. Higher values capture more complex patterns but reduce sparsity benefits. Requires 'Reset All'.</span></span>
+                        <span class="reset-needed-hint">(Reset Req.)</span>
+                     </div>
+                 </div>
+                 <!-- Library Learning Parameters -->
+                  <div class="param-group needs-reset-all">
+                      <h4>Library Learning (Anomaly Driven)</h4>
+                      <div data-param="sp-lr" class="param-item">
+                        <label class="library-param-label" for="param-sp-lr">SP Base Learn Rate:</label>
+                        <input type="number" id="param-sp-lr" min="0.001" max="0.2" step="0.005">
+                        <span class="tooltip" tabindex="0">?<span class="tooltiptext">Base learning rate for Spatial Pooler permanence updates (Hebbian learning for spatial patterns). Requires 'Reset All'.</span></span>
+                         <span class="reset-needed-hint">(Reset Req.)</span>
+                     </div>
+                     <div data-param="tm-lr" class="param-item">
+                        <label class="library-param-label" for="param-tm-lr">TM Base Learn Rate:</label>
+                        <input type="number" id="param-tm-lr" min="0.001" max="0.2" step="0.005">
+                        <span class="tooltip" tabindex="0">?<span class="tooltiptext">Base learning rate for Temporal Memory transition learning (sequence learning). Requires 'Reset All'.</span></span>
+                         <span class="reset-needed-hint">(Reset Req.)</span>
+                     </div>
+                      <div data-param="anomaly-thresh" class="param-item">
+                        <label class="library-param-label" for="param-anomaly-thresh">Anomaly Threshold:</label>
+                        <input type="number" id="param-anomaly-thresh" min="0.05" max="0.8" step="0.05">
+                        <span class="tooltip" tabindex="0">?<span class="tooltiptext">Prediction Anomaly score (0-1, mismatch between prediction and actual) above which learning rate is boosted. Higher threshold means learning only happens on big surprises. Requires 'Reset All'.</span></span>
+                         <span class="reset-needed-hint">(Reset Req.)</span>
+                     </div>
+                      <div data-param="anomaly-boost" class="param-item">
+                        <label class="library-param-label" for="param-anomaly-boost">Anomaly Learn Boost:</label>
+                        <input type="number" id="param-anomaly-boost" min="1.0" max="5.0" step="0.25">
+                        <span class="tooltip" tabindex="0">?<span class="tooltiptext">Factor to multiply base LR by when anomaly exceeds threshold (learning is driven by surprise/prediction error). Higher boost speeds up learning on novel events. Requires 'Reset All'.</span></span>
+                         <span class="reset-needed-hint">(Reset Req.)</span>
+                     </div>
+                  </div>
+
+                 <hr>
+                 <h3>Learning Bot Behavior (Updates Immediately)</h3>
+                 <div class="param-group">
+                     <div data-param="explore" class="param-item">
+                         <label for="param-explore">Base Explore Rate (%):</label>
+                         <input type="number" id="param-explore" min="0" max="100">
+                         <span class="tooltip" tabindex="0">?<span class="tooltiptext">Base chance Learning Bot explores (randomly or via rules) instead of exploiting prediction. Necessary for discovering new behaviors. Updates immediately.</span></span>
+                     </div>
+                      <div data-param="rule-explore-pct" class="param-item">
+                         <label for="param-rule-explore-pct">Rule Exploration (%):</label>
+                         <input type="number" id="param-rule-explore-pct" min="0" max="100">
+                         <span class="tooltip" tabindex="0">?<span class="tooltiptext">Percentage of *exploring* Learning Bots that will use rule-based logic (mimicking Hardcoded bot) instead of purely random actions. Guides exploration. Updates immediately.</span></span>
+                     </div>
+                 </div>
+
+                 <hr>
+                 <div class="param-controls">
+                    <button id="saveParamsButton" title="Save Current Parameters to Browser Storage">Save Params</button>
+                    <button id="loadParamsButton" title="Load Parameters from Browser Storage">Load Params</button>
+                    <button id="resetParamsButton" title="Reset Parameters to Default Values">Reset Params to Default</button>
+                 </div>
+            </div>
+
+             <div class="stats">
+                Goals Claimed (Total):<br>
+                Hardcoded (Blue): <span id="hc-total-goals">0</span> |
+                Learning (Red): <span id="learning-total-goals">0</span><br>
+                Learning Bot Anomaly (Avg L0): <span id="learning-avg-anomaly">N/A</span>
+            </div>
+
+            <div class="info">
+                <div id="hardcoded-info" class="bot-type-info">
+                    <b>Hardcoded Bots (<span id="hc-count">0</span>)</b>
+                    Active: <span id="hc-active">0</span> | <span class="frozen-status">Frozen: <span id="hc-frozen">0</span></span><br>
+                    Goals This Round: <span id="hc-goals-round">0</span>
+                </div>
+                <div id="learning-info" class="bot-type-info">
+                    <b>Learning Bots (<span id="learning-count">0</span>)</b>
+                    Active: <span id="learning-active">0</span> | <span class="frozen-status">Frozen: <span id="learning-frozen">0</span></span><br>
+                    Goals This Round: <span id="learning-goals-round">0</span><br>
+                    Last Mode (Bot L0): <span id="learning-mode-example">N/A</span><br>
+                    Encoder SDR: <span id="learning-sdr-info">N/A</span> |
+                    Library Levels: <span id="learning-levels-info">N/A</span> |
+                    Cols/Lvl: <span id="learning-cols-info">N/A</span>
+                </div>
+                 <div id="library-state-info" class="bot-type-info" style="font-size: 0.8em; max-height: 200px; overflow-y: auto;">
+                    <b>Library State (Bot L0, Layer 0)</b><br>
+                    Last Input SDR (Indices): <pre id="last-input-sdr">N/A</pre>
+                    Last Actual Columns (SP Out): <pre id="last-actual-cols">N/A</pre>
+                    Last Predicted Columns (TM Pred): <pre id="last-predicted-cols">N/A</pre>
+                    Anomaly (Current/Avg): <span id="current-anomaly">N/A</span> / <span id="avg-anomaly-detailed">N/A</span><br>
+                    Anomaly History (Last 10): <span id="anomaly-history">N/A</span>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        // ================================================================
+        // --- Part 0: Parameter Management & Defaults ---
+        // ================================================================
+        const DEFAULT_CONFIG = {
+            // Simulation Params
+            GRID_SIZE: 35, NUM_HC_BOTS: 2, NUM_LEARNING_BOTS: 2, NUM_GOALS: 10, // Increased defaults
+            MAX_OBSTACLES_FACTOR: 0.08, MIN_OBSTACLES_FACTOR: 0.03, MAX_STEPS_PER_ROUND: 2000, // Increased defaults
+            SIMULATION_SPEED_MS: 50, FREEZE_DURATION: 25,
+            VISIBILITY_RANGE: 8, // Increased default
+            LEARNING_BOT_BASE_EXPLORATION_RATE: 0.20, // Increased exploration
+            LEARNING_BOT_RULE_EXPLORE_PERCENT: 0.70, // Favor rule-based exploration more
+            NUM_ACTIONS: 6, // 0:Up, 1:Left, 2:Right, 3:Down, 4:Punch, 5:ClaimGoal
+
+            // SDR Library Params (HTM Inspired)
+            SDR_SIZE: 2048, SDR_ACTIVE_BITS: 40, // ~2% sparsity for input SDR
+            NUM_HIERARCHY_LEVELS: 2,
+            SP_NUM_COLUMNS: 1024, COLUMN_ACTIVE_BITS: 20, // ~2% sparsity for column SDR
+            SP_LEARNING_RATE: 0.05, TM_LEARNING_RATE: 0.05,
+            SP_POTENTIAL_PCT: 0.5, // % of input a column can connect to
+            SP_STIMULUS_THRESHOLD: 3, // Min connected active inputs to boost column overlap score
+            ANOMALY_THRESHOLD: 0.15, // Prediction error threshold to boost learning
+            ANOMALY_LEARN_BOOST: 2.5, // Multiplier for learning rate when anomaly is high
+
+            // Env Generation Params
+            MIN_GOAL_START_DISTANCE_FACTOR: 0.25, MIN_BOT_START_DISTANCE_FACTOR: 0.35, // Start bots further apart
+            MIN_BOT_GOAL_DISTANCE_FACTOR: 0.20, // Keep bots further from goals initially
+        };
+        let CONFIG = { ...DEFAULT_CONFIG };
+        const LOCAL_STORAGE_KEY = 'multiBotSimParams_v4.2_HTM';
+
+        // --- UI Element Variables ---
+        let statusEl, roundInfoEl;
+        let hcTotalGoalsEl, learningTotalGoalsEl, learningAvgAnomalyEl;
+        let hcCountEl, hcActiveEl, hcFrozenEl, hcGoalsRoundEl;
+        let learningCountEl, learningActiveEl, learningFrozenEl, learningGoalsRoundEl, learningModeExampleEl, learningSdrInfoEl, learningLevelsInfoEl, learningColsInfoEl;
+        let paramSpeedInput, paramFreezeInput, paramExploreInput, paramRuleExplorePctInput;
+        let paramVisRangeInput, paramGridInput, paramGoalsInput, paramHcBotsInput, paramLearningBotsInput;
+        let paramMaxStepsInput;
+        let paramSdrSizeInput, paramSdrActiveInput, paramLevelsInput, paramSpColumnsInput, paramColActiveInput, paramSpLrInput, paramTmLrInput, paramAnomalyThreshInput, paramAnomalyBoostInput;
+        let gridContainerEl;
+        let startButton, stopButton, resetRoundButton, resetFullButton;
+        // Library State UI
+        let lastInputSdrEl, lastActualColsEl, lastPredictedColsEl, currentAnomalyEl, avgAnomalyDetailedEl, anomalyHistoryEl;
+
+
+        // --- Parameter Helper Functions ---
+        function saveParamsToLocalStorage() { try { applyConfigFromUI(false); const paramsToSave = { ...CONFIG }; localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(paramsToSave)); console.log('Parameters saved.'); alert('Parameters saved!'); } catch (e) { console.error('Failed to save parameters:', e); alert('Error saving parameters.'); } }
+        function loadParamsFromLocalStorage() { try { const savedParams = localStorage.getItem(LOCAL_STORAGE_KEY); if (savedParams) { const parsed = JSON.parse(savedParams); const loadedConfig = { ...DEFAULT_CONFIG }; // Start with defaults, override with loaded
+                 // Validate and apply each loaded parameter
+                 for (const key in DEFAULT_CONFIG) { if (parsed.hasOwnProperty(key) && typeof DEFAULT_CONFIG[key] === typeof parsed[key]) { loadedConfig[key] = parsed[key]; } else if (parsed.hasOwnProperty(key)) { console.warn(`Loaded param '${key}' type mismatch or deprecated. Using default.`); } }
+                 // Explicit validation/clamping after loading all possible keys
+                 const validate = (key, min, max, isInt = true) => { if (typeof loadedConfig[key] === 'number') { let val = loadedConfig[key]; if(isInt) val = Math.round(val); loadedConfig[key] = Math.max(min, Math.min(max, val)); } else { loadedConfig[key] = DEFAULT_CONFIG[key]; /* Revert to default if type is wrong */ } };
+                 // Add validation for ALL parameters here to catch bad values from storage
+                 validate('GRID_SIZE', 15, 80); validate('NUM_GOALS', 1, 50); validate('NUM_HC_BOTS', 0, 10); validate('NUM_LEARNING_BOTS', 0, 10); validate('MAX_STEPS_PER_ROUND', 100, 10000); validate('VISIBILITY_RANGE', 2, 20); validate('SIMULATION_SPEED_MS', 1, 1000); validate('FREEZE_DURATION', 1, 100); validate('LEARNING_BOT_BASE_EXPLORATION_RATE', 0, 1, false); validate('LEARNING_BOT_RULE_EXPLORE_PERCENT', 0, 1, false);
+                 validate('SDR_SIZE', 512, 8192); validate('SDR_ACTIVE_BITS', 10, 160); loadedConfig.SDR_ACTIVE_BITS = Math.min(loadedConfig.SDR_ACTIVE_BITS, Math.floor(loadedConfig.SDR_SIZE * 0.5)); // Ensure active bits <= 50% of total
+                 validate('NUM_HIERARCHY_LEVELS', 1, 5); validate('SP_NUM_COLUMNS', 256, 4096); validate('COLUMN_ACTIVE_BITS', 5, 80); loadedConfig.COLUMN_ACTIVE_BITS = Math.min(loadedConfig.COLUMN_ACTIVE_BITS, Math.floor(loadedConfig.SP_NUM_COLUMNS * 0.5)); // Ensure active cols <= 50% of total
+                 validate('SP_LEARNING_RATE', 0.001, 0.2, false); validate('TM_LEARNING_RATE', 0.001, 0.2, false); validate('ANOMALY_THRESHOLD', 0.05, 0.8, false); validate('ANOMALY_LEARN_BOOST', 1.0, 5.0, false);
+                 // Non-UI parameters should also be validated if stored
+                 validate('MAX_OBSTACLES_FACTOR', 0.01, 0.3, false); validate('MIN_OBSTACLES_FACTOR', 0.0, 0.2, false);
+                 CONFIG = loadedConfig; console.log('Parameters loaded from localStorage.'); return true; } else { console.log('No saved parameters found.'); return false; } } catch (e) { console.error('Failed to load/parse parameters:', e); alert('Error loading parameters. Using defaults.'); resetParamsToDefault(false); return false; } }
+        function resetParamsToDefault(showAlert = true) { CONFIG = { ...DEFAULT_CONFIG }; console.log('Parameters reset to defaults.'); updateUIFromConfig(); checkResetHints(); if (showAlert) alert('Parameters reset to default values.'); }
+        function updateUIFromConfig() { if (!paramSpeedInput) { console.error("updateUIFromConfig called before elements initialized!"); return; } paramSpeedInput.value = CONFIG.SIMULATION_SPEED_MS; paramFreezeInput.value = CONFIG.FREEZE_DURATION; paramGridInput.value = CONFIG.GRID_SIZE; paramGoalsInput.value = CONFIG.NUM_GOALS; paramHcBotsInput.value = CONFIG.NUM_HC_BOTS; paramLearningBotsInput.value = CONFIG.NUM_LEARNING_BOTS; paramMaxStepsInput.value = CONFIG.MAX_STEPS_PER_ROUND; paramVisRangeInput.value = CONFIG.VISIBILITY_RANGE; paramExploreInput.value = Math.round(CONFIG.LEARNING_BOT_BASE_EXPLORATION_RATE * 100); paramRuleExplorePctInput.value = Math.round(CONFIG.LEARNING_BOT_RULE_EXPLORE_PERCENT * 100); paramSdrSizeInput.value = CONFIG.SDR_SIZE; paramSdrActiveInput.value = CONFIG.SDR_ACTIVE_BITS; paramLevelsInput.value = CONFIG.NUM_HIERARCHY_LEVELS; paramSpColumnsInput.value = CONFIG.SP_NUM_COLUMNS; paramColActiveInput.value = CONFIG.COLUMN_ACTIVE_BITS; paramSpLrInput.value = CONFIG.SP_LEARNING_RATE.toFixed(3); paramTmLrInput.value = CONFIG.TM_LEARNING_RATE.toFixed(3); paramAnomalyThreshInput.value = CONFIG.ANOMALY_THRESHOLD.toFixed(2); paramAnomalyBoostInput.value = CONFIG.ANOMALY_LEARN_BOOST.toFixed(2); }
+        function checkResetHints() { if (!paramGridInput || !statusEl) return; const needs = getConfigNeedsFromUI(); let requiresFullReset = false; let requiresRoundReset = false; document.querySelectorAll('.parameters div.param-item').forEach(div => { const paramKey = div.dataset.param; const needsResetAllClass = div.classList.contains('needs-reset-all') || div.parentElement?.classList.contains('needs-reset-all'); const needsNewRoundClass = div.classList.contains('needs-new-round') || div.parentElement?.classList.contains('needs-new-round'); const hintEl = div.querySelector('.reset-needed-hint'); if (hintEl) { let hintVisible = false; let hintText = ''; if (!isRunning && needs.changedParams.includes(paramKey)) { if (needsResetAllClass) { hintVisible = true; hintText = '(Reset Req.)'; requiresFullReset = true; } else if (needsNewRoundClass && !needs.fullReset) { hintVisible = true; hintText = '(New Round Req.)'; requiresRoundReset = true; } } hintEl.style.display = hintVisible ? 'inline' : 'none'; if (hintVisible) hintEl.textContent = hintText; } }); if (!isRunning) { if (requiresFullReset) { statusEl.textContent = "Status: Settings changed. 'Reset All' required."; } else if (requiresRoundReset) { statusEl.textContent = "Status: Settings changed. 'New Round' required."; } else if(statusEl.textContent.startsWith("Status: Settings changed")) { statusEl.textContent = "Status: Ready"; } } }
+
+        // --- Utility Functions ---
+        function manhattanDistance(pos1, pos2) { if (!pos1 || !pos2) return Infinity; return Math.abs(pos1.x - pos2.x) + Math.abs(pos1.y - pos2.y); }
+        function getUniqueRandomIndices(count, maxIndex) { // Optimized version
+            const indices = new Set(); if (count <= 0 || maxIndex < 0 || count > maxIndex + 1) return []; const availableIndices = maxIndex + 1; if (count > availableIndices / 2) { /* If requesting more than half, it's faster to pick indices to *exclude* */ const indicesToExclude = new Set(); const numToExclude = availableIndices - count; while (indicesToExclude.size < numToExclude) { indicesToExclude.add(Math.floor(Math.random() * availableIndices)); } const result = []; for (let i = 0; i < availableIndices; i++) { if (!indicesToExclude.has(i)) result.push(i); } return result.sort((a,b)=>a-b); } else { /* Otherwise, pick indices to include */ while (indices.size < count) { indices.add(Math.floor(Math.random() * availableIndices)); } return Array.from(indices).sort((a, b) => a - b); }
+        }
+        function calculateSdrOverlap(sdr1_indices, sdr2_indices) { if (!sdr1_indices || !sdr2_indices || sdr1_indices.length === 0 || sdr2_indices.length === 0) return 0; const set1 = new Set(sdr1_indices); let overlap = 0; for (const index of sdr2_indices) { if (set1.has(index)) overlap++; } return overlap; }
+        function calculateSdrDifferenceSize(sdr1_indices, sdr2_indices) { if (!sdr1_indices) sdr1_indices = []; if (!sdr2_indices) sdr2_indices = []; const set1 = new Set(sdr1_indices); const set2 = new Set(sdr2_indices); let diff = 0; for (const index of set1) { if (!set2.has(index)) diff++; } for (const index of set2) { if (!set1.has(index)) diff++; } return diff; }
+
+
+        // ================================================================
+        // --- START OF AGNOSTIC LIBRARY CODE (Hierarchical HTM/SDR Inspired) ---
+        // ================================================================
+
+        // --- Part 1.1: Single HTM Layer (SP + TM) ---
+        class HTMLayer {
+             /**
+              * Represents one level in the HTM hierarchy, containing a Spatial Pooler (SP)
+              * and a Temporal Memory (TM). It processes an input SDR, computes a sparse
+              * column activation (via SP), learns spatial patterns, learns temporal sequences
+              * (via TM), makes predictions, and calculates anomaly scores.
+              *
+              * **Key HTM Principles Implemented:**
+              * - **SDRs:** Input and output are sparse distributed representations (arrays of active indices).
+              * - **Spatial Pooler (SP):** Learns stable spatial patterns from input SDRs. Uses Hebbian learning and inhibition for sparsity.
+              * - **Temporal Memory (TM):** Learns sequences of SP outputs (column SDRs). Makes predictions based on context. (Simplified implementation).
+              * - **Prediction & Anomaly:** Compares TM's prediction with the actual SP output to calculate an anomaly score (prediction error).
+              * - **Anomaly-Driven Learning:** Boosts SP and TM learning rates when anomaly is high, focusing learning on surprising events.
+              *
+              * @param {number} level - The level index of this layer in the hierarchy (0 = lowest).
+              * @param {number} inputSize - The dimensionality of the input SDR for this layer.
+              * @param {number} numColumns - The number of columns in the Spatial Pooler.
+              * @param {number} columnActiveBits - The target number of active columns (sparsity control).
+              * @param {object} config - The global configuration object containing learning parameters.
+              */
+             constructor(level, inputSize, numColumns, columnActiveBits, config) {
+                 this.level = level;
+                 this.inputSize = inputSize;
+                 this.numColumns = numColumns;
+                 this.columnActiveBits = columnActiveBits;
+                 this.config = config;
+
+                 // --- Spatial Pooler (SP) state ---
+                 this.spPotentialPools = new Array(this.numColumns).fill(null).map(() => new Set());
+                 this.spPermanences = new Array(this.numColumns).fill(null).map(() => new Map());
+
+                 // --- Temporal Memory (TM) state (Simplified Transition Map) ---
+                 this.tmTransitions = new Map();
+
+                 // --- State tracking ---
+                 this.lastActualColumnsSdr = [];
+                 this.lastPredictedColumnsSdr = [];
+                 this.lastInputSdr = [];
+
+                 // --- Anomaly Tracking ---
+                 this.anomaly = 0.5;
+                 this.anomalyHistory = [];
+                 this.maxAnomalyHistory = 50;
+
+                 this._initializeSP();
+                 console.log(`HTM Layer ${level} Initialized: InputSize=${inputSize}, Columns=${numColumns}, ActiveCols=${columnActiveBits}`);
+             }
+
+             _initializeSP() {
+                 const potentialPoolSize = Math.max(10, Math.min(this.inputSize, Math.floor(this.inputSize * this.config.SP_POTENTIAL_PCT)));
+                 const initialPermanence = 0.3;
+                 const permanenceThreshold = 0.5; // Min permanence for a synapse to be 'connected'
+
+                 if (this.inputSize <= 0) { console.error(`Layer ${this.level} SP: Invalid inputSize ${this.inputSize}.`); return; }
+
+                 for (let i = 0; i < this.numColumns; i++) {
+                     const potentialIndices = getUniqueRandomIndices(potentialPoolSize, this.inputSize - 1);
+                     potentialIndices.forEach(inputIndex => {
+                          if(inputIndex < 0 || inputIndex >= this.inputSize) { console.warn(`L${this.level} SP Init: Invalid potential index ${inputIndex}.`); return; }
+                          this.spPotentialPools[i].add(inputIndex);
+                          // Initialize permanence randomly around the threshold
+                          const randomPermanence = permanenceThreshold + (Math.random() * 0.2 - 0.1);
+                          this.spPermanences[i].set(inputIndex, Math.max(0.01, Math.min(0.99, randomPermanence))); // Avoid exact 0 or 1
+                     });
+                 }
+             }
+
+             /** Spatial Pooler Compute & Learn step */
+             _spatialPoolerCompute(inputSdrIndices, currentLearningRate, isLearningPhase = false) {
+                 if (!inputSdrIndices || inputSdrIndices.length === 0) return { activeColumns: [], overlaps: [] };
+
+                 const inputSdrSet = new Set(inputSdrIndices);
+                 const overlaps = new Array(this.numColumns).fill(0);
+                 const permanenceThreshold = 0.5; // Connects if permanence >= this
+
+                 // 1. Calculate Overlap + Stimulus Boost
+                 for (let i = 0; i < this.numColumns; i++) {
+                     let connectedSynapseCount = 0;
+                     const permanences = this.spPermanences[i];
+                     const potentialPool = this.spPotentialPools[i];
+
+                     potentialPool.forEach(inputIndex => {
+                         if (inputSdrSet.has(inputIndex) && (permanences.get(inputIndex) || 0) >= permanenceThreshold) {
+                             connectedSynapseCount++;
+                         }
+                     });
+                     // Apply boost based on config threshold - encourages columns matching minimum input pattern complexity
+                     overlaps[i] = (connectedSynapseCount >= this.config.SP_STIMULUS_THRESHOLD) ? connectedSynapseCount * 1.1 : connectedSynapseCount;
+                 }
+
+                 // 2. Inhibition: Select top 'k' columns (k = columnActiveBits)
+                 const targetNumActiveColumns = Math.min(this.numColumns, this.columnActiveBits);
+                 const columnIndicesSorted = overlaps
+                     .map((score, index) => ({ score, index }))
+                     .sort((a, b) => b.score - a.score);
+
+                 const activeColumnsSdr = columnIndicesSorted
+                     .slice(0, targetNumActiveColumns)
+                     .filter(c => c.score > 0) // Only include columns with actual input overlap
+                     .map(c => c.index);
+
+                 // 3. Learning (Hebbian + Anomaly Boost)
+                 if (isLearningPhase && currentLearningRate > 0 && activeColumnsSdr.length > 0) {
+                     const permanenceIncrement = currentLearningRate * 0.1; // Adjusted based on effective rate
+                     const permanenceDecrement = currentLearningRate * 0.05; // Adjusted based on effective rate
+
+                     activeColumnsSdr.forEach(colIndex => {
+                         const potentialPool = this.spPotentialPools[colIndex];
+                         const permanences = this.spPermanences[colIndex];
+
+                         potentialPool.forEach(inputIndex => {
+                             let currentPermanence = permanences.get(inputIndex) || 0;
+                             if (inputSdrSet.has(inputIndex)) { // If input bit was active AND column won
+                                 currentPermanence += permanenceIncrement; // Strengthen connection
+                             } else { // If input bit was inactive BUT column won
+                                 currentPermanence -= permanenceDecrement; // Weaken connection
+                             }
+                             permanences.set(inputIndex, Math.max(0.01, Math.min(0.99, currentPermanence))); // Clamp, avoid edges
+                         });
+                     });
+                 }
+
+                 return { activeColumns: activeColumnsSdr.sort((a, b) => a - b), overlaps };
+             }
+
+             /** Temporal Memory Prediction step (Simplified) */
+             _temporalMemoryPredict(currentColumnsSdr) {
+                 if (!currentColumnsSdr || currentColumnsSdr.length === 0) return [];
+
+                 const currentColSdrString = currentColumnsSdr.join(',');
+                 const transitions = this.tmTransitions.get(currentColSdrString);
+
+                 if (!transitions || transitions.size === 0) {
+                     // No learned sequence -> return sparse random prediction (exploration signal)
+                     return getUniqueRandomIndices(this.columnActiveBits, this.numColumns - 1);
+                 }
+
+                 // Predict the most likely next state based on transition strength
+                 let bestNextStateString = ''; let maxStrength = -1;
+                 transitions.forEach((strength, nextStateString) => {
+                     if (strength > maxStrength) { maxStrength = strength; bestNextStateString = nextStateString; }
+                 });
+
+                 if (!bestNextStateString) { return getUniqueRandomIndices(this.columnActiveBits, this.numColumns - 1); } // Fallback
+
+                 return bestNextStateString.split(',').map(Number).sort((a, b) => a - b);
+             }
+
+             /** Temporal Memory Learning step (Simplified) */
+             _temporalMemoryLearn(prevColumnsSdr, actualCurrentColumnsSdr, currentLearningRate) {
+                 if (!prevColumnsSdr || prevColumnsSdr.length === 0 || !actualCurrentColumnsSdr || actualCurrentColumnsSdr.length === 0) return;
+
+                 const prevColSdrString = prevColumnsSdr.join(',');
+                 const actualCurrentColSdrString = actualCurrentColumnsSdr.join(',');
+
+                 // Optional: Avoid learning stable states (could be added)
+                 // if (prevColSdrString === actualCurrentColSdrString) return;
+
+                 if (!this.tmTransitions.has(prevColSdrString)) {
+                     this.tmTransitions.set(prevColSdrString, new Map());
+                 }
+                 const transitions = this.tmTransitions.get(prevColSdrString);
+
+                 // Reinforce the observed transition
+                 const currentStrength = transitions.get(actualCurrentColSdrString) || 0;
+                 const incrementAmount = 1 + currentLearningRate * 5; // More boost from learning rate
+                 transitions.set(actualCurrentColSdrString, currentStrength + incrementAmount);
+
+                 // Optional: Decay competing transitions (forgetting)
+                 const decayFactor = 1.0 - (currentLearningRate * 0.1);
+                 if (decayFactor < 1.0) {
+                     const entriesToDelete = [];
+                     transitions.forEach((strength, nextState) => {
+                         if (nextState !== actualCurrentColSdrString) {
+                             const newStrength = strength * decayFactor;
+                             if (newStrength < 0.1) { entriesToDelete.push(nextState); } // Prune very weak transitions
+                             else { transitions.set(nextState, newStrength); }
+                         }
+                     });
+                     entriesToDelete.forEach(key => transitions.delete(key));
+                 }
+             }
+
+             /** Main processing function for one time step */
+             computeAndLearn(inputSdr) {
+                 // 1. Spatial Pooling (Compute actual columns for this step)
+                 const spOutput = this._spatialPoolerCompute(inputSdr, 0, false); // Run SP without learning first
+                 const actualCurrentColumnsSdr = spOutput.activeColumns;
+
+                 // 2. Anomaly Calculation (Compare *prediction* for this step with *actual* SP output)
+                 let currentAnomaly = 0;
+                 const predictionSize = this.lastPredictedColumnsSdr?.length ?? 0;
+                 const actualSize = actualCurrentColumnsSdr.length;
+                 if (predictionSize > 0 || actualSize > 0) {
+                     const difference = calculateSdrDifferenceSize(this.lastPredictedColumnsSdr, actualCurrentColumnsSdr);
+                     // Normalize anomaly: difference relative to the max possible difference (~2*k)
+                     const maxPossibleDifference = this.columnActiveBits * 2;
+                     currentAnomaly = difference / Math.max(1, maxPossibleDifference);
+                     currentAnomaly = Math.min(1.0, Math.max(0.0, currentAnomaly)); // Clamp [0, 1]
+                 } else { currentAnomaly = 0.0; } // No prediction/no activity = low anomaly
+
+                 this.anomaly = currentAnomaly; // Store current anomaly
+                 this.anomalyHistory.push(this.anomaly);
+                 if (this.anomalyHistory.length > this.maxAnomalyHistory) this.anomalyHistory.shift();
+
+                 // 3. Anomaly-Driven Learning Rate Modulation
+                 const isAnomalyHigh = this.anomaly > this.config.ANOMALY_THRESHOLD;
+                 const boostFactor = isAnomalyHigh ? this.config.ANOMALY_LEARN_BOOST : 1.0;
+                 const effectiveSpLearningRate = this.config.SP_LEARNING_RATE * boostFactor;
+                 const effectiveTmLearningRate = this.config.TM_LEARNING_RATE * boostFactor;
+
+                 // 4. Learning (Use boosted rates if anomaly was high)
+                 //    a) SP Learning: Update permanences based on the input and winning columns.
+                 this._spatialPoolerCompute(inputSdr, effectiveSpLearningRate, true);
+                 //    b) TM Learning: Learn the transition from the *previous* actual state to the *current* actual state.
+                 this._temporalMemoryLearn(this.lastActualColumnsSdr, actualCurrentColumnsSdr, effectiveTmLearningRate);
+
+                 // 5. Update State for *next* cycle
+                 this.lastInputSdr = inputSdr; // Store input for inspection
+                 this.lastActualColumnsSdr = actualCurrentColumnsSdr; // Current SP output becomes history
+
+                 // Return the SP output for this step (feeds next layer or TM prediction)
+                 return actualCurrentColumnsSdr;
+             }
+
+             /** Generates the TM's prediction for the *next* time step */
+             predictNext() {
+                 const predictedNextCols = this._temporalMemoryPredict(this.lastActualColumnsSdr);
+                 // Store prediction internally; used for next step's anomaly calculation
+                 this.lastPredictedColumnsSdr = predictedNextCols;
+                 return predictedNextCols; // Return prediction (e.g., for decoding by layer below)
+             }
+
+             getAverageAnomaly() {
+                 if (this.anomalyHistory.length === 0) return this.anomaly;
+                 return this.anomalyHistory.reduce((a, b) => a + b, 0) / this.anomalyHistory.length;
+             }
+
+             // Provide internal state for visualization/debugging
+             getInternalState() {
+                return {
+                    lastInputSdr: [...this.lastInputSdr],
+                    lastActualColumnsSdr: [...this.lastActualColumnsSdr],
+                    lastPredictedColumnsSdr: [...this.lastPredictedColumnsSdr],
+                    anomaly: this.anomaly,
+                    avgAnomaly: this.getAverageAnomaly(),
+                    anomalyHistory: [...this.anomalyHistory].slice(-10) // Last 10 history points
+                };
+             }
+
+             dispose() {
+                 this.spPotentialPools = []; this.spPermanences = []; this.tmTransitions.clear();
+                 this.anomalyHistory = []; this.lastActualColumnsSdr = []; this.lastPredictedColumnsSdr = []; this.lastInputSdr = [];
+                 console.log(`Disposed HTM Layer ${this.level}`);
+             }
+        } // --- End of HTMLayer ---
+
+
+        // --- Part 1.2: Hierarchical Predictor Library ---
+        class HierarchicalPredictor {
+            /**
+             * Manages a hierarchy of HTMLayer instances. Coordinates bottom-up processing
+             * (learning spatial patterns and sequences) and top-down prediction generation.
+             * The library is stream-agnostic. Learning is driven by prediction anomalies at each level.
+             *
+             * **Key HTM Principles Implemented:**
+             * - **Hierarchy:** Stacks multiple HTMLayers. Output of layer `i` (column SDR) is input to layer `i+1`.
+             * - **Bottom-Up Processing:** Input SDR flows up, activating SPs and TMs at each level, enabling learning of increasingly abstract patterns/sequences.
+             * - **Top-Down Prediction (Conceptual):** Each layer predicts its *next* expected state based on its learned sequences. Layer 0's prediction is used externally.
+             * - **Distributed Anomaly Signals:** Each layer calculates its own anomaly, modulating its own learning rate.
+             *
+             * @param {object} config - The global configuration object.
+             */
+            constructor(config) {
+                 this.config = config;
+                 this.numLevels = config.NUM_HIERARCHY_LEVELS;
+                 this.layers = [];
+                 let currentInputSize = config.SDR_SIZE;
+
+                 for (let i = 0; i < this.numLevels; i++) {
+                     if (currentInputSize <= 0 || config.SP_NUM_COLUMNS <= 0 || config.COLUMN_ACTIVE_BITS <= 0) { throw new Error(`Invalid parameters for initializing Layer ${i}: InputSize=${currentInputSize}, Columns=${config.SP_NUM_COLUMNS}, ActiveCols=${config.COLUMN_ACTIVE_BITS}`); }
+                     const layer = new HTMLayer(i, currentInputSize, config.SP_NUM_COLUMNS, config.COLUMN_ACTIVE_BITS, config);
+                     this.layers.push(layer);
+                     currentInputSize = config.SP_NUM_COLUMNS; // Output of this layer is input to next
+                 }
+                 console.log(`HierarchicalPredictor Initialized with ${this.numLevels} levels.`);
+             }
+
+            /** Processes a single time step through the hierarchy */
+             process_and_predict(encodedInputSdr) {
+                 let currentLayerInputSdr = encodedInputSdr;
+                 const layerActualActivations = []; // Store activations for potential analysis
+
+                 // --- Bottom-up Pass: Compute Activations & Learn ---
+                 // Each layer processes its input, calculates anomaly, learns, and outputs its column activation.
+                 for (let i = 0; i < this.numLevels; i++) {
+                     const actualColumnSdr = this.layers[i].computeAndLearn(currentLayerInputSdr);
+                     layerActualActivations.push(actualColumnSdr);
+                     currentLayerInputSdr = actualColumnSdr; // Output becomes input for next layer
+                 }
+
+                 // --- Top-down Pass (Conceptual): Generate Predictions ---
+                 // Each layer predicts its *next* state based on its *current* activity.
+                 let predictedNextSdr_Level0 = [];
+                 for (let i = this.numLevels - 1; i >= 0; i--) {
+                     const layerPrediction = this.layers[i].predictNext();
+                     if (i === 0) {
+                         predictedNextSdr_Level0 = layerPrediction; // Capture L0 prediction for external use
+                     }
+                     // Note: Higher-level predictions could potentially modulate lower-level activity in a full HTM model (context), but are not used here.
+                 }
+
+                 // Return Layer 0's prediction for the *next* step and its anomaly for the *current* step.
+                 return {
+                     predictedSdr: predictedNextSdr_Level0,
+                     anomaly: this.layers.length > 0 ? this.layers[0].anomaly : 0
+                 };
+             }
+
+             getAverageAnomaly(level = 0) {
+                 if (level < 0 || level >= this.numLevels || !this.layers[level]) return 0;
+                 return this.layers[level].getAverageAnomaly();
+             }
+
+             getLayer0State() {
+                 if (this.layers.length > 0 && this.layers[0]) {
+                     return this.layers[0].getInternalState();
+                 }
+                 return null;
+             }
+
+             dispose() {
+                 this.layers.forEach(layer => layer.dispose());
+                 this.layers = [];
+                 console.log("HierarchicalPredictor disposed.");
+             }
+        } // --- End of HierarchicalPredictor ---
+
+        // ================================================================
+        // --- END OF AGNOSTIC LIBRARY CODE ---
+        // ================================================================
+
+
+        // ================================================================
+        // --- Part 1.5: The Stream Encoder/Decoder (Bridge) ---
+        // ================================================================
+        class StreamEncoder {
+             /**
+              * Encodes various data streams (sensors, last action) into a single, combined SDR
+              * suitable for input to the HierarchicalPredictor library. Also decodes the
+              * library's predicted SDR back into meaningful outputs (primarily the predicted action).
+              * **Crucially, the library (HierarchicalPredictor) remains unaware of this mapping.**
+              *
+              * @param {object} config - Global configuration, including SDR parameters.
+              * @param {HierarchicalPredictor} predictorLibrary - Reference needed for decoding based on L0 SP state.
+              */
+             constructor(config, predictorLibrary) {
+                 this.config = config;
+                 this.predictorLibrary = predictorLibrary; // Needed for decoding
+                 this.sdrSize = config.SDR_SIZE;
+                 this.sdrActiveBits = config.SDR_ACTIVE_BITS;
+                 this.visibilityRange = config.VISIBILITY_RANGE;
+                 this.numActions = config.NUM_ACTIONS;
+                 this.predictorOutputSize = config.SP_NUM_COLUMNS;
+                 this.predictorOutputActiveBits = config.COLUMN_ACTIVE_BITS;
+
+                 this.featureMap = {};
+                 this.actualTotalActiveBits = 0;
+
+                 this._buildFeatureMap();
+                 console.log(`StreamEncoder Initialized: SDR Size=${this.sdrSize}, Target Active Bits=${this.sdrActiveBits}, Actual Allocated Bits=${this.actualTotalActiveBits}`);
+                 if(learningSdrInfoEl) learningSdrInfoEl.textContent = `${this.sdrSize} / ${this.actualTotalActiveBits}`;
+             }
+
+             /** Defines streams and allocates SDR space */
+             _buildFeatureMap() {
+                 // Define the features (streams) to be encoded. Weight influences SDR bit allocation.
+                 this.streamFeatures = [
+                     { name: 'wallDistance', type: 'scalar', range: this.visibilityRange, weight: 1.0 },
+                     { name: 'nearestVisibleGoalDist', type: 'scalar', range: this.visibilityRange, weight: 1.5 },
+                     { name: 'numVisibleGoals', type: 'scalar_count', maxCount: 5, weight: 0.8 },
+                     { name: 'nearestOpponentDist', type: 'scalar', range: this.visibilityRange, weight: 1.2 },
+                     { name: 'isFrozen', type: 'binary', weight: 0.7 }, // Bot's own frozen state
+                     { name: 'opponentIsFrozen', type: 'binary', weight: 0.7 }, // Sensed opponent's frozen state
+                     { name: 'opponentType', type: 'category', categories: ['Hardcoded', 'Learning', 'None'], weight: 0.8 },
+                     { name: 'lastAction', type: 'category', categories: Array.from({ length: this.numActions }, (_, i) => i), weight: 2.5 } // Last action taken is crucial context
+                 ];
+
+                 const totalWeight = this.streamFeatures.reduce((sum, f) => sum + f.weight, 0);
+                 this.featureMap = {}; let currentOffset = 0; let totalAllocatedBits = 0;
+
+                 // Allocate space proportionally, ensure minimum size and sparsity
+                 this.streamFeatures.forEach(feature => {
+                     const proportion = feature.weight / totalWeight;
+                     let featureSize = Math.max(16, Math.floor(this.sdrSize * proportion)); // Min size for representation
+                     if (currentOffset + featureSize > this.sdrSize) featureSize = Math.max(16, this.sdrSize - currentOffset); // Adjust last feature if needed
+                     let targetBits = Math.max(2, Math.floor(this.sdrActiveBits * proportion));
+                     targetBits = Math.min(targetBits, Math.floor(featureSize * 0.5)); // Ensure <= 50% sparsity within feature's allocation
+
+                     this.featureMap[feature.name] = { ...feature, offset: currentOffset, size: featureSize, bits: targetBits };
+                     totalAllocatedBits += targetBits; currentOffset += featureSize;
+                 });
+
+                 // Adjust target bits globally if the sum doesn't match the overall target
+                 const adjustmentFactor = totalAllocatedBits > 0 ? this.sdrActiveBits / totalAllocatedBits : 1;
+                 this.actualTotalActiveBits = 0;
+                 if (Math.abs(1 - adjustmentFactor) > 0.05) { // Only adjust if significantly different
+                     console.log(`Adjusting feature bits by factor ${adjustmentFactor.toFixed(2)}`);
+                     for (const featureName in this.featureMap) {
+                         const featureInfo = this.featureMap[featureName];
+                         let adjustedBits = Math.max(1, Math.round(featureInfo.bits * adjustmentFactor));
+                         adjustedBits = Math.min(adjustedBits, Math.floor(featureInfo.size * 0.5)); // Re-check sparsity
+                         featureInfo.bits = adjustedBits; this.actualTotalActiveBits += adjustedBits;
+                     }
+                 } else { this.actualTotalActiveBits = totalAllocatedBits; }
+             }
+
+             // --- Encoding Methods (Scalar, Binary, Category -> SDR indices) ---
+             _encodeScalar(value, featureInfo) { const indices = new Set(); const { offset, size, bits, range } = featureInfo; const maxValue = range; let normValue = 0; if (typeof value === 'number' && !isNaN(value) && value !== Infinity && value >= 0) { normValue = Math.min(value, maxValue) / maxValue; } else { /* Treat infinity/invalid as max value */ normValue = 1.0; } const centerIndexFloat = offset + normValue * (size - 1); const centerIndex = Math.floor(centerIndexFloat); const startIndex = Math.max(offset, centerIndex - Math.floor(bits / 2)); const endIndex = Math.min(offset + size - 1, startIndex + bits - 1); for (let i = startIndex; i <= endIndex; i++) { indices.add(i); } /* Add random bits if needed to reach target count (handles edge cases) */ while(indices.size < bits && indices.size < size) { const randIdx = offset + Math.floor(Math.random()*size); if(!indices.has(randIdx)) indices.add(randIdx); } while(indices.size > bits) { /* Remove random bits if exceeded target */ const idxArray = Array.from(indices); indices.delete(idxArray[Math.floor(Math.random()*idxArray.length)]); } return indices; }
+             _encodeScalarCount(value, featureInfo) { const { maxCount } = featureInfo; const effectiveValue = (typeof value === 'number' && !isNaN(value)) ? Math.min(value, maxCount) : 0; return this._encodeScalar(effectiveValue, { ...featureInfo, range: maxCount }); }
+             _encodeBinary(value, featureInfo) { const indices = new Set(); const { offset, size, bits } = featureInfo; const midPoint = offset + Math.floor(size / 2); const start = value ? offset : midPoint; /* Activate first half for true, second half for false */ const end = value ? midPoint - 1 : offset + size - 1; const rangeSize = end - start + 1; if (rangeSize <= 0) return indices; const numBitsToActivate = Math.min(bits, rangeSize); const activeIndices = getUniqueRandomIndices(numBitsToActivate, rangeSize - 1); activeIndices.forEach(idx => indices.add(start + idx)); return indices; }
+             _encodeCategory(value, featureInfo) { const indices = new Set(); const { offset, size, bits, categories } = featureInfo; const catIndex = categories.indexOf(value); const numCategories = categories.length; const spacePerCat = Math.floor(size / numCategories); /* Handle unknown category -> activate bits in a reserved 'null' space at the end */ if (catIndex === -1 || spacePerCat <= 0) { const nullSpaceSize = Math.max(4, Math.floor(size * 0.1)); // Reserve ~10% or 4 bits min for null
+                const nullStart = Math.max(offset, offset + size - nullSpaceSize); const effectiveNullSize = (offset + size) - nullStart; const numBitsToActivate = Math.min(bits, effectiveNullSize > 0 ? effectiveNullSize : 0); if (numBitsToActivate > 0) { const activeIndices = getUniqueRandomIndices(numBitsToActivate, effectiveNullSize - 1); activeIndices.forEach(idx => indices.add(nullStart + idx)); } } else { /* Known category -> activate bits within its dedicated segment */ const catStart = offset + catIndex * spacePerCat; const catEnd = catStart + spacePerCat - 1; const catRangeSize = catEnd - catStart + 1; const numBitsToActivate = Math.min(bits, catRangeSize); const activeIndices = getUniqueRandomIndices(numBitsToActivate, catRangeSize - 1); activeIndices.forEach(idx => indices.add(catStart + idx)); } return indices; }
+
+             /** Encodes a full data object into a single combined SDR */
+             encode(dataObject) {
+                 const combinedSdrIndices = new Set();
+                 for (const featureName in this.featureMap) {
+                     const featureInfo = this.featureMap[featureName];
+                     let value = dataObject.hasOwnProperty(featureName) ? dataObject[featureName] : null;
+                     // Handle specific null cases expected by encoders
+                     if(featureName === 'opponentType' && value === null) value = 'None';
+                     if(featureName === 'lastAction' && value === null) value = -1; // Use -1 or similar for initial/invalid action
+
+                     let featureIndices = new Set();
+                     try {
+                         switch (featureInfo.type) {
+                             case 'scalar': featureIndices = this._encodeScalar(value, featureInfo); break;
+                             case 'scalar_count': featureIndices = this._encodeScalarCount(value, featureInfo); break;
+                             case 'binary': featureIndices = this._encodeBinary(value, featureInfo); break;
+                             case 'category': featureIndices = this._encodeCategory(value, featureInfo); break;
+                             default: console.warn(`Unknown feature type: ${featureInfo.type}`);
+                         }
+                     } catch (err) { console.error(`Error encoding ${featureName} (value ${value}):`, err); }
+                     featureIndices.forEach(index => combinedSdrIndices.add(index));
+                 }
+                 return Array.from(combinedSdrIndices).sort((a, b) => a - b);
+             }
+
+
+             /** Decodes the library's predicted column SDR into an action */
+             decodePrediction(predictedColumnSdr) {
+                 const decoded = this._createDefaultDecodedObject(); // Start with default values
+                 if (!predictedColumnSdr || predictedColumnSdr.length === 0 || !this.predictorLibrary || this.predictorLibrary.layers.length === 0) {
+                     // console.warn("Decode Prediction: Invalid input or missing library/layer 0."); // Reduce noise
+                     return decoded; // Return default (likely random move)
+                 }
+
+                 const predictedColumnSet = new Set(predictedColumnSdr);
+                 const layer0 = this.predictorLibrary.layers[0];
+                 let maxActionSupportScore = -Infinity; let predictedAction = null;
+                 const actionFeatureInfo = this.featureMap['lastAction'];
+
+                 if (!actionFeatureInfo || !layer0) {
+                     console.error("Decode Error: 'lastAction' feature info or Layer 0 missing.");
+                     return decoded;
+                 }
+
+                 // Iterate through each possible action defined in the feature map
+                 actionFeatureInfo.categories.forEach((actionValue) => {
+                     if (typeof actionValue !== 'number' || actionValue < 0) return; // Skip invalid action values
+
+                     // 1. Generate the canonical SDR for this specific action value
+                     const actionInputIndicesSet = this._encodeCategory(actionValue, actionFeatureInfo);
+                     if (actionInputIndicesSet.size === 0) return; // Skip if action encoding is empty
+
+                     // 2. Calculate "support" score: How strongly do the *predicted columns* connect to *this action's input bits*?
+                     let currentActionSupportScore = 0;
+                     predictedColumnSet.forEach(colIndex => { // For each predicted column...
+                         if (colIndex < 0 || colIndex >= layer0.numColumns) return; // Safety check
+                         const permanences = layer0.spPermanences[colIndex]; // Get its synapses
+                         const potentialPool = layer0.spPotentialPools[colIndex];
+
+                         potentialPool.forEach(inputIndex => { // For each synapse this column *could* have...
+                             if (actionInputIndicesSet.has(inputIndex)) { // ...does it connect to a bit representing *this* action?
+                                 const permanence = permanences.get(inputIndex) || 0;
+                                 // If the connection is strong (learned), add its strength to the support score.
+                                 if (permanence >= 0.6) { // Threshold for strong connection
+                                     currentActionSupportScore += permanence;
+                                 }
+                             }
+                         });
+                     });
+
+                     // 3. Track the action with the highest support score
+                     if (currentActionSupportScore > maxActionSupportScore) {
+                         maxActionSupportScore = currentActionSupportScore;
+                         predictedAction = actionValue;
+                     }
+                 });
+
+                 // 4. Assign the best action found
+                 decoded.predictedAction = predictedAction;
+
+                 // 5. Fallback if no action was strongly predicted (low support score)
+                 if (decoded.predictedAction === null || maxActionSupportScore < 0.1) { // Threshold for minimum confidence
+                    decoded.predictedAction = Math.floor(Math.random() * 4); // Predict a random *movement* action
+                 }
+                 return decoded;
+             }
+
+             _createDefaultDecodedObject() { const defaultObj = {}; for (const featureName in this.featureMap) { const outputKey = (featureName === 'lastAction') ? 'predictedAction' : featureName; const featureInfo = this.featureMap[featureName]; switch (featureInfo.type) { case 'scalar': defaultObj[outputKey] = Infinity; break; case 'scalar_count': defaultObj[outputKey] = 0; break; case 'binary': defaultObj[outputKey] = false; break; case 'category': defaultObj[outputKey] = null; break; default: defaultObj[outputKey] = null; } } if (!defaultObj.hasOwnProperty('predictedAction') || defaultObj.predictedAction === null) { defaultObj.predictedAction = Math.floor(Math.random() * 4); } return defaultObj; }
+             getActionFromDecoded(decodedObject) { const action = decodedObject?.predictedAction; return (typeof action === 'number' && action >= 0 && action < this.numActions) ? action : -1; }
+
+        } // --- End of StreamEncoder ---
+
+        // ================================================================
+        // --- Part 2: Simulation Environment ---
+        // ================================================================
+        class GridEnvironment {
+             constructor(size, numGoals, minObstaclesFactor, maxObstaclesFactor, numHcBots, numLearningBots, configFactors) {
+                this.size = Math.max(15, size); // Ensure minimum size
+                this.numGoals = Math.max(1, numGoals);
+                const gridArea = this.size * this.size;
+                this.minObstacles = Math.floor(gridArea * minObstaclesFactor);
+                this.maxObstacles = Math.floor(gridArea * maxObstaclesFactor);
+                this.numHcBots = Math.max(0, numHcBots);
+                this.numLearningBots = Math.max(0, numLearningBots);
+                this.configFactors = configFactors; // Store distance factors { MIN_GOAL_START_DISTANCE_FACTOR, MIN_BOT_START_DISTANCE_FACTOR, MIN_BOT_GOAL_DISTANCE_FACTOR }
+                this.obstacles = new Set();
+                this.goals = [];
+                this.claimedGoals = new Set();
+                this.startPositions = []; // Will be populated by randomize
+                this.randomize();
+             }
+
+             randomize() {
+                 this.obstacles.clear(); this.goals = []; this.claimedGoals.clear(); this.startPositions = [];
+                 const totalBots = this.numHcBots + this.numLearningBots;
+                 const totalCells = this.size * this.size;
+                 const requiredCells = totalBots + this.numGoals;
+                 const density = requiredCells / totalCells;
+
+                 console.log(`Randomizing Env: Size=${this.size}x${this.size}, Goals=${this.numGoals}, HC=${this.numHcBots}, Lrn=${this.numLearningBots}. Density=${density.toFixed(3)}`);
+
+                 if (density > 0.5) { // Warn if density is very high
+                    console.warn(`High density (${(density*100).toFixed(1)}%) may make placement difficult or impossible.`);
+                 }
+
+                 const maxPlacementAttempts = totalCells * 5; // More attempts for sparse grids
+                 let attempts = 0;
+                 const occupied = new Set(); // Stores "x,y" strings of occupied cells
+
+                 // --- Helper Functions for Placement ---
+                 const getRandomPosition = () => ({ x: Math.floor(Math.random() * this.size), y: Math.floor(Math.random() * this.size) });
+                 const posToString = (pos) => `${pos.x},${pos.y}`;
+                 const isValidPlacement = (pos, occupiedSet, checkDistances = {}) => {
+                     const posStr = posToString(pos);
+                     if (occupiedSet.has(posStr)) return false; // Basic collision check
+
+                     // Check distance constraints if provided
+                     if (checkDistances.goalMinDist) { for(const goal of this.goals) { if (manhattanDistance(pos, goal) < checkDistances.goalMinDist) return false; } }
+                     if (checkDistances.botMinDist) { for(const botStart of this.startPositions) { if (manhattanDistance(pos, botStart) < checkDistances.botMinDist) return false; } }
+                     // Ensure proposed bot position is not too close to *any* goal
+                     if (checkDistances.botToGoalMinDist) { for(const goal of this.goals) { if (manhattanDistance(pos, goal) < checkDistances.botToGoalMinDist) return false; } }
+                     return true;
+                 };
+
+                 // --- 1. Place Goals ---
+                 const minGoalDist = Math.max(2, Math.floor(this.size * this.configFactors.MIN_GOAL_START_DISTANCE_FACTOR));
+                 attempts = 0; let goalIdCounter = 0;
+                 while (this.goals.length < this.numGoals && attempts < maxPlacementAttempts) {
+                     attempts++; const pos = getRandomPosition();
+                     if (isValidPlacement(pos, occupied, { goalMinDist: minGoalDist })) {
+                         const goal = { ...pos, id: `G${goalIdCounter++}` };
+                         this.goals.push(goal); occupied.add(posToString(pos));
+                     }
+                 }
+                 if (this.goals.length < this.numGoals) console.warn(`Placed only ${this.goals.length}/${this.numGoals} goals after ${attempts} attempts.`);
+
+                 // --- 2. Place Bots ---
+                 const minBotDist = Math.max(3, Math.floor(this.size * this.configFactors.MIN_BOT_START_DISTANCE_FACTOR));
+                 const minBotGoalDist = Math.max(3, Math.floor(this.size * this.configFactors.MIN_BOT_GOAL_DISTANCE_FACTOR));
+                 attempts = 0; let placedBots = 0;
+                 while(placedBots < totalBots && attempts < maxPlacementAttempts) {
+                     attempts++; const pos = getRandomPosition();
+                     // Check against other bots AND all goals
+                     if (isValidPlacement(pos, occupied, { botMinDist: minBotDist, botToGoalMinDist: minBotGoalDist })) {
+                         const type = placedBots < this.numHcBots ? 'Hardcoded' : 'Learning';
+                         const id = `${type.charAt(0)}${type === 'Hardcoded' ? placedBots : placedBots - this.numHcBots}`;
+                         this.startPositions.push({ ...pos, type, id });
+                         occupied.add(posToString(pos));
+                         placedBots++;
+                     }
+                 }
+                 if (placedBots < totalBots) { console.error(`CRITICAL: Placed only ${placedBots}/${totalBots} bots after ${attempts} attempts. Grid might be too small/dense or constraints too strict.`); }
+
+                 // --- 3. Place Obstacles ---
+                 const numObstaclesToPlace = this.minObstacles + Math.floor(Math.random() * (this.maxObstacles - this.minObstacles + 1));
+                 attempts = 0;
+                 while (this.obstacles.size < numObstaclesToPlace && attempts < maxPlacementAttempts) {
+                     attempts++; const pos = getRandomPosition();
+                     // Ensure obstacle doesn't overwrite a goal or bot start position
+                     if (isValidPlacement(pos, occupied)) {
+                         this.obstacles.add(posToString(pos));
+                         occupied.add(posToString(pos)); // Also mark obstacle location as occupied
+                     }
+                 }
+             }
+
+             isValid(pos) { return pos.x >= 0 && pos.x < this.size && pos.y >= 0 && pos.y < this.size && !this.obstacles.has(`${pos.x},${pos.y}`); }
+
+             getSensoryData(actingBot, allBots, visibilityRange) {
+                 const botPos = actingBot.pos; const isFrozen = actingBot.freezeTimer > 0;
+                 let minWallDist = visibilityRange + 1; // Use range+1 for "out of range"
+                 minWallDist = Math.min(botPos.x, botPos.y, this.size - 1 - botPos.x, this.size - 1 - botPos.y);
+
+                 let nearestVisibleGoalDist = visibilityRange + 1; let numVisibleGoals = 0; let visibleGoalsRaw = [];
+                 this.goals.forEach((goal) => { if (!this.claimedGoals.has(goal.id)) { const dist = manhattanDistance(botPos, goal); if (dist <= visibilityRange) { numVisibleGoals++; visibleGoalsRaw.push({ ...goal, dist: dist }); nearestVisibleGoalDist = Math.min(nearestVisibleGoalDist, dist); } } });
+
+                 let nearestOpponentDist = visibilityRange + 1; let nearestOpponent = null;
+                 for (const opponentBot of allBots) { if (opponentBot.id === actingBot.id) continue; const dist = manhattanDistance(botPos, opponentBot.pos); if (dist <= visibilityRange) { if (dist < nearestOpponentDist) { nearestOpponentDist = dist; nearestOpponent = opponentBot; } } }
+
+                 const opponentIsFrozen = nearestOpponent ? nearestOpponent.freezeTimer > 0 : false;
+                 const opponentType = nearestOpponent ? nearestOpponent.type : 'None';
+
+                 const sensoryOutput = {
+                     wallDistance: minWallDist > visibilityRange ? visibilityRange + 1 : minWallDist,
+                     nearestVisibleGoalDist: nearestVisibleGoalDist,
+                     numVisibleGoals: numVisibleGoals,
+                     nearestOpponentDist: nearestOpponentDist,
+                     opponentIsFrozen: opponentIsFrozen,
+                     opponentType: opponentType,
+                     isFrozen: isFrozen,
+                     _visibleGoals: visibleGoalsRaw.sort((a,b) => a.dist - b.dist),
+                     _nearestOpponent: nearestOpponent
+                 };
+                 return sensoryOutput;
+             }
+
+             performMoveAction(botPos, actionIndex) { let nextPos = { ...botPos }; switch (actionIndex) { case 0: nextPos.y -= 1; break; /* Up */ case 1: nextPos.x -= 1; break; /* Left */ case 2: nextPos.x += 1; break; /* Right */ case 3: nextPos.y += 1; break; /* Down */ default: break; } return nextPos; }
+
+             getAdjacentUnclaimedGoal(botPos) { for (const goal of this.goals) { if (!this.claimedGoals.has(goal.id) && manhattanDistance(botPos, goal) === 1) { return goal; } } return null; }
+
+             claimGoal(goalId, botId) { if (!goalId || this.claimedGoals.has(goalId)) return false; const goalIndex = this.goals.findIndex(g => g.id === goalId); if (goalIndex !== -1) { this.claimedGoals.add(goalId); const goal = this.goals[goalIndex]; console.log(`Goal ${goalId} at (${goal.x},${goal.y}) claimed by ${botId}.`); return true; } return false; }
+
+             areAllGoalsClaimed() { return this.goals.length > 0 && this.claimedGoals.size >= this.goals.length; }
+        } // --- End of GridEnvironment ---
+
+
+        // ================================================================
+        // --- Part 3: Bot Implementations ---
+        // ================================================================
+
+        /* --- Hardcoded Bot (Rule-Based - Improved Avoidance) --- */
+        class HardcodedBot {
+             constructor(startPos, id) { this.id = id; this.type = "Hardcoded"; this.reset(startPos); }
+             reset(startPos) { this.pos = { ...startPos }; this.steps = 0; this.goalsReachedThisRound = 0; this.freezeTimer = 0; this.lastMoveAttempt = -1; this.stuckCounter = 0; }
+
+             getAction(senses, env) {
+                 if (this.freezeTimer > 0) { this.stuckCounter = 0; return -1; } // Cannot act if frozen
+
+                 // Action Priority: 1. Claim, 2. Punch, 3. Move to Goal, 4. Random
+                 const adjacentGoal = env.getAdjacentUnclaimedGoal(this.pos);
+                 if (adjacentGoal) { this.stuckCounter = 0; this.lastMoveAttempt = 5; return 5; }
+
+                 if (senses._nearestOpponent && senses.nearestOpponentDist === 1 && !senses.opponentIsFrozen) {
+                     this.stuckCounter = 0; this.lastMoveAttempt = 4; return 4;
+                 }
+
+                 if (senses._visibleGoals && senses._visibleGoals.length > 0) {
+                     const nearestGoal = senses._visibleGoals[0];
+                     const dx = nearestGoal.x - this.pos.x; const dy = nearestGoal.y - this.pos.y;
+                     let preferredMoves = [];
+                     if (Math.abs(dx) > Math.abs(dy)) { if (dx !== 0) preferredMoves.push(dx > 0 ? 2 : 1); if (dy !== 0) preferredMoves.push(dy > 0 ? 3 : 0); }
+                     else { if (dy !== 0) preferredMoves.push(dy > 0 ? 3 : 0); if (dx !== 0) preferredMoves.push(dx > 0 ? 2 : 1); }
+
+                     for (const moveAction of preferredMoves) {
+                         const nextPos = env.performMoveAction(this.pos, moveAction);
+                         if (env.isValid(nextPos)) { this.stuckCounter = 0; this.lastMoveAttempt = moveAction; return moveAction; }
+                     }
+
+                     this.stuckCounter++;
+                     let sidewayMoves = [];
+                     if (Math.abs(dx) > Math.abs(dy)) { sidewayMoves = [0, 3]; } else { sidewayMoves = [1, 2]; }
+                     sidewayMoves = sidewayMoves.filter(m => !preferredMoves.includes(m));
+                     sidewayMoves = sidewayMoves.sort(() => Math.random() - 0.5);
+
+                     for (const avoidAction of sidewayMoves) {
+                         const nextPos = env.performMoveAction(this.pos, avoidAction);
+                         if (env.isValid(nextPos)) { this.lastMoveAttempt = avoidAction; return avoidAction; }
+                     }
+                 } else { this.stuckCounter = 0; }
+
+                 let validMoves = [];
+                 for (let action = 0; action < 4; action++) { if (env.isValid(env.performMoveAction(this.pos, action))) { validMoves.push(action); } }
+
+                 const reverseAction = (this.lastMoveAttempt >= 0 && this.lastMoveAttempt <= 3) ? (this.lastMoveAttempt + 2) % 4 : -1;
+                 if (validMoves.length > 1 && reverseAction !== -1 && this.stuckCounter < 5) {
+                     const nonReverseMoves = validMoves.filter(m => m !== reverseAction);
+                     if (nonReverseMoves.length > 0) validMoves = nonReverseMoves;
+                 }
+
+                 if (validMoves.length > 0) {
+                     const chosenMove = validMoves[Math.floor(Math.random() * validMoves.length)];
+                     this.lastMoveAttempt = chosenMove; return chosenMove;
+                 } else { this.lastMoveAttempt = -1; return -1; }
+             }
+
+             update(nextPos, chosenAction) { this.pos = nextPos; this.steps++; if (this.freezeTimer > 0) { this.freezeTimer--; } }
+             applyFreeze(duration) { console.log(`%c${this.id} Frozen for ${duration} steps!`, 'color: blue; font-weight: bold;'); this.freezeTimer = Math.max(this.freezeTimer, duration); }
+        } // --- End of HardcodedBot ---
+
+
+        /* --- Learning Bot (Uses SDR Library) --- */
+        class LearningBot {
+              constructor(startPos, id, encoder, predictorLibrary, config) {
+                 this.id = id; this.type = "Learning";
+                 if (!encoder || !predictorLibrary) throw new Error("LearningBot requires valid encoder and predictorLibrary!");
+                 this.encoder = encoder; this.predictorLibrary = predictorLibrary; this.config = config;
+                 this.lastAnomaly = 0.5; this.lastChosenAction = -1; // Start with invalid action
+                 this.mode = "Init"; this.useRuleBasedExploration = Math.random() < (this.config.LEARNING_BOT_RULE_EXPLORE_PERCENT || 0.5); // Decide initial exploration strategy
+                 this._hcLogicProvider = null; // For rule-based exploration
+                 this.reset(startPos);
+              }
+
+              reset(startPos) { this.pos = { ...startPos }; this.steps = 0; this.goalsReachedThisRound = 0; this.freezeTimer = 0; this.mode = "Init"; this.lastChosenAction = -1; this.lastAnomaly = 0.5; this._hcLogicProvider = null; this.useRuleBasedExploration = Math.random() < this.config.LEARNING_BOT_RULE_EXPLORE_PERCENT; }
+
+              getAction(currentSenses, env, allBots) {
+                  let chosenAction = -1;
+
+                  // I. Prepare Input Data Object (Current Senses + Last Action Taken)
+                  const currentInputData = { ...currentSenses, lastAction: this.lastChosenAction };
+                  delete currentInputData._visibleGoals; delete currentInputData._nearestOpponent; // Remove raw data not used by encoder
+
+                  // II. Encode Data to Input SDR
+                  let currentInputSdr = [];
+                  try { currentInputSdr = this.encoder.encode(currentInputData); }
+                  catch (encodeError) { console.error(`${this.id}: Encode Error:`, encodeError); this.lastChosenAction = -1; return -1; } // Return invalid action on error
+
+                  // III. Process Input & Get Prediction from Library
+                  let predictionResult = { predictedSdr: [], anomaly: 0 };
+                  try {
+                     predictionResult = this.predictorLibrary.process_and_predict(currentInputSdr);
+                     this.lastAnomaly = predictionResult.anomaly; // Store anomaly (prediction error) for this step
+                  } catch (libraryError) { console.error(`${this.id}: Predictor Lib Error:`, libraryError); this.lastChosenAction = -1; return -1; } // Return invalid action on error
+
+                  // IV. Decide Action (Only if NOT frozen)
+                  if (this.freezeTimer > 0) {
+                      this.mode = "Frozen"; // Update status
+                      chosenAction = -1; // Cannot act
+                  } else {
+                       const effectiveExplorationRate = this.config.LEARNING_BOT_BASE_EXPLORATION_RATE;
+
+                       if (Math.random() < effectiveExplorationRate) {
+                           // --- Exploration Mode ---
+                           if (this.useRuleBasedExploration) {
+                               this.mode = "Explore (Rule)";
+                               try {
+                                   if (!this._hcLogicProvider) this._hcLogicProvider = new HardcodedBot(this.pos, "temp_hc");
+                                   this._hcLogicProvider.pos = { ...this.pos }; // Use current position
+                                   this._hcLogicProvider.freezeTimer = 0;
+                                   this._hcLogicProvider.lastMoveAttempt = (this.lastChosenAction >= 0 && this.lastChosenAction <=3) ? this.lastChosenAction : -1;
+                                   this._hcLogicProvider.stuckCounter = 0;
+                                   chosenAction = this._hcLogicProvider.getAction(currentSenses, env); // USE ENV HERE
+                                   if (chosenAction < 0 || chosenAction >= this.config.NUM_ACTIONS) { chosenAction = Math.floor(Math.random() * 4); }
+                               } catch (ruleExploreError) { console.error(`${this.id} Rule Explore Error:`, ruleExploreError); chosenAction = Math.floor(Math.random() * 4); }
+                           } else {
+                               this.mode = "Explore (Random)";
+                               chosenAction = Math.floor(Math.random() * this.config.NUM_ACTIONS);
+                               // Basic validation of random action feasibility
+                               if (chosenAction === 4 && !(currentSenses._nearestOpponent && currentSenses.nearestOpponentDist === 1 && !currentSenses.opponentIsFrozen)) chosenAction = Math.floor(Math.random()*4);
+                               else if (chosenAction === 5 && !env.getAdjacentUnclaimedGoal(this.pos)) chosenAction = Math.floor(Math.random()*4); // USE ENV HERE
+                               else if (chosenAction < 4 && !env.isValid(env.performMoveAction(this.pos, chosenAction))) { // USE ENV HERE
+                                    let validMoves = []; for(let mv=0; mv<4; mv++) if(env.isValid(env.performMoveAction(this.pos, mv))) validMoves.push(mv); // USE ENV HERE
+                                    chosenAction = validMoves.length > 0 ? validMoves[Math.floor(Math.random()*validMoves.length)] : -1;
+                               }
+                           }
+                       } else {
+                           // --- Exploitation Mode (Use Library Prediction) ---
+                           try {
+                               const decodedPrediction = this.encoder.decodePrediction(predictionResult.predictedSdr);
+                               chosenAction = this.evaluatePredictionAndChooseAction(currentSenses, decodedPrediction, env); // USE ENV HERE
+                           } catch(evalError) { console.error(`${this.id}: Predict Eval Error:`, evalError); chosenAction = Math.floor(Math.random() * 4); this.mode = "Exploit (Error)"; }
+                       }
+                   } // End if (!frozen)
+
+                  this.lastChosenAction = chosenAction;
+                  return chosenAction;
+              }
+
+              evaluatePredictionAndChooseAction(currentSenses, decodedPrediction, env) { // USE ENV HERE
+                    let predictedAction = this.encoder.getActionFromDecoded(decodedPrediction);
+                    let isPredictedActionValid = false;
+
+                    if (predictedAction >= 0 && predictedAction <= 3) { // Move
+                        isPredictedActionValid = env.isValid(env.performMoveAction(this.pos, predictedAction)); // USE ENV HERE
+                    } else if (predictedAction === 4) { // Punch
+                        isPredictedActionValid = (currentSenses._nearestOpponent && currentSenses.nearestOpponentDist === 1 && !currentSenses.opponentIsFrozen);
+                    } else if (predictedAction === 5) { // Claim Goal
+                        isPredictedActionValid = env.getAdjacentUnclaimedGoal(this.pos) !== null; // USE ENV HERE
+                    }
+
+                    if (isPredictedActionValid) {
+                        this.mode = `Exploit (Predict ${predictedAction})`;
+                        return predictedAction;
+                    } else {
+                        this.mode = `Exploit (Fallback ${predictedAction}->?)`;
+                        const adjacentGoal = env.getAdjacentUnclaimedGoal(this.pos); if (adjacentGoal) { this.mode += ` 5`; return 5; } // USE ENV HERE
+                        if (currentSenses._nearestOpponent && currentSenses.nearestOpponentDist === 1 && !currentSenses.opponentIsFrozen) { this.mode += ` 4`; return 4; }
+                        if (currentSenses._visibleGoals && currentSenses._visibleGoals.length > 0) {
+                            const nearestGoal = currentSenses._visibleGoals[0]; const dx = nearestGoal.x - this.pos.x; const dy = nearestGoal.y - this.pos.y;
+                            let preferredMoves = []; if (Math.abs(dx) > Math.abs(dy)) { if (dx !== 0) preferredMoves.push(dx > 0 ? 2 : 1); if (dy !== 0) preferredMoves.push(dy > 0 ? 3 : 0); } else { if (dy !== 0) preferredMoves.push(dy > 0 ? 3 : 0); if (dx !== 0) preferredMoves.push(dx > 0 ? 2 : 1); }
+                            for (const move of preferredMoves) { if (env.isValid(env.performMoveAction(this.pos, move))) { this.mode += ` ${move}`; return move; }} // USE ENV HERE
+                            let sidewayMoves = (Math.abs(dx) > Math.abs(dy)) ? [0, 3] : [1, 2]; sidewayMoves = sidewayMoves.filter(m => !preferredMoves.includes(m));
+                            for (const avoidAction of sidewayMoves) { if (env.isValid(env.performMoveAction(this.pos, avoidAction))) { this.mode += ` ${avoidAction}`; return avoidAction; }} // USE ENV HERE
+                        }
+                        let validMoves = []; for (let a = 0; a < 4; a++) { if (env.isValid(env.performMoveAction(this.pos, a))) validMoves.push(a); } // USE ENV HERE
+                        if(validMoves.length > 0) { const move = validMoves[Math.floor(Math.random() * validMoves.length)]; this.mode += ` ${move}`; return move; }
+                        this.mode += ` -1`; return -1;
+                    }
+              }
+
+              update(nextPos, chosenAction) { this.pos = nextPos; this.steps++; if (this.freezeTimer > 0) this.freezeTimer--; }
+              applyFreeze(duration) { console.log(`%c${this.id} Frozen for ${duration} steps!`, 'color: red; font-weight: bold;'); this.freezeTimer = Math.max(this.freezeTimer, duration); }
+        } // --- End of LearningBot ---
+
+
+        // ================================================================
+        // --- Part 4: Visualization ---
+        // ================================================================
+        class Visualizer { // No major changes needed, ensure updates handle grid size changes
+            constructor(canvasId) { this.canvas = document.getElementById(canvasId); if(!this.canvas) throw new Error(`Canvas #${canvasId} not found!`); this.ctx = this.canvas.getContext('2d'); this.gridSize = 0; this.cellSize = 0; this.currentGoals = []; this.currentObstacles = new Set(); this.claimedGoalsIDs = new Set(); this.lastContainerWidth = 0; }
+            updateGridDimensions(newGridSize, containerWidth) { const availableWidth = Math.max(300, containerWidth - 20); const newCellSize = Math.max(5, Math.floor(availableWidth / newGridSize)); if (newGridSize !== this.gridSize || newCellSize !== this.cellSize || containerWidth !== this.lastContainerWidth ) { this.gridSize = newGridSize; this.cellSize = newCellSize; this.canvas.width = this.gridSize * this.cellSize; this.canvas.height = this.gridSize * this.cellSize; this.lastContainerWidth = containerWidth; console.log(`Visualizer resized: Grid=${this.gridSize}, Cell=${this.cellSize}, Canvas=${this.canvas.width}x${this.canvas.height}`); this.drawGrid(); } } // Log resize
+            updateEnvironment(goals, obstacles, claimedGoalIDs) { this.currentGoals = goals; this.currentObstacles = obstacles; this.claimedGoalsIDs = claimedGoalIDs; }
+            drawGrid() { if (!this.canvas || !this.ctx || !this.gridSize || !this.cellSize) return; this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height); if (this.cellSize > 6) { this.ctx.strokeStyle = '#eee'; this.ctx.lineWidth = 1; for (let i = 0; i <= this.gridSize; i++) { const pos = Math.round(i * this.cellSize) + 0.5; this.ctx.beginPath(); this.ctx.moveTo(pos, 0); this.ctx.lineTo(pos, this.canvas.height); this.ctx.stroke(); this.ctx.beginPath(); this.ctx.moveTo(0, pos); this.ctx.lineTo(this.canvas.width, pos); this.ctx.stroke(); } } else { this.ctx.strokeStyle = '#ccc'; this.ctx.lineWidth = 1; this.ctx.strokeRect(0.5, 0.5, this.canvas.width - 1, this.canvas.height - 1); } this.ctx.fillStyle = '#555'; this.currentObstacles.forEach(obsString => { const [x, y] = obsString.split(',').map(Number); if(x>=0 && x<this.gridSize && y>=0 && y<this.gridSize) { this.ctx.fillRect(x * this.cellSize, y * this.cellSize, this.cellSize, this.cellSize); } }); this.ctx.textAlign = 'center'; this.ctx.textBaseline = 'middle'; const goalRadius = Math.max(2, this.cellSize * 0.35); const goalFontSize = Math.max(8, Math.floor(this.cellSize * 0.5)); this.currentGoals.forEach((goal) => { const drawX = goal.x * this.cellSize; const drawY = goal.y * this.cellSize; const centerX = drawX + this.cellSize / 2; const centerY = drawY + this.cellSize / 2; if(goal.x>=0 && goal.x<this.gridSize && goal.y>=0 && goal.y<this.gridSize) { if (this.claimedGoalsIDs.has(goal.id)) { this.ctx.fillStyle = '#d0d0d0'; this.ctx.fillRect(drawX, drawY, this.cellSize, this.cellSize); if (this.cellSize > 10) { this.ctx.fillStyle = '#888'; this.ctx.font = `bold ${goalFontSize}px sans-serif`; this.ctx.fillText("X", centerX, centerY); } } else { this.ctx.fillStyle = 'gold'; this.ctx.beginPath(); this.ctx.arc(centerX, centerY, goalRadius, 0, Math.PI * 2); this.ctx.fill(); if (this.cellSize > 12) { this.ctx.fillStyle = 'black'; this.ctx.font = `bold ${goalFontSize}px sans-serif`; this.ctx.fillText("G", centerX, centerY + 1); } } } }); }
+            drawBot(bot, botIndex, totalBotsOfType) { if (!bot || !bot.pos || bot.pos.x === undefined || bot.pos.y === undefined) { /* console.warn("Attempted to draw invalid bot:", bot); */ return; } const centerX = bot.pos.x * this.cellSize + this.cellSize / 2; const centerY = bot.pos.y * this.cellSize + this.cellSize / 2; const radius = Math.max(2, this.cellSize * 0.4); let baseColorRgb, alpha; const shadeFactor = totalBotsOfType <= 1 ? 0.5 : (botIndex / Math.max(1, totalBotsOfType-1)); if (bot.type === 'Hardcoded') { const blueShade = 120 + Math.floor(135 * shadeFactor); baseColorRgb = `0, 100, ${blueShade}`; alpha = 0.9; } else if (bot.type === 'Learning') { const redShade = 120 + Math.floor(135 * shadeFactor); baseColorRgb = `${redShade}, 50, 50`; alpha = 0.9; } else { baseColorRgb = `100, 100, 100`; alpha = 0.8; } this.ctx.fillStyle = `rgba(${baseColorRgb}, ${alpha})`; this.ctx.beginPath(); this.ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI); this.ctx.fill(); if (bot.freezeTimer > 0) { this.ctx.strokeStyle = '#00ccff'; this.ctx.lineWidth = Math.max(1, Math.floor(this.cellSize * 0.15)); this.ctx.beginPath(); this.ctx.arc(centerX, centerY, radius + this.ctx.lineWidth / 2, 0, 2 * Math.PI); this.ctx.stroke(); this.ctx.lineWidth = 1; } if (this.cellSize > 15) { this.ctx.fillStyle = 'white'; this.ctx.font = `bold ${Math.max(6, Math.floor(this.cellSize * 0.3))}px sans-serif`; this.ctx.textAlign = 'center'; this.ctx.textBaseline = 'middle'; const idNum = bot.id.match(/\d+/); if (idNum) this.ctx.fillText(idNum[0], centerX, centerY + 1); } }
+            update(hardcodedBots, learningBots) { this.drawGrid(); hardcodedBots.forEach((bot, index) => this.drawBot(bot, index, hardcodedBots.length)); learningBots.forEach((bot, index) => this.drawBot(bot, index, learningBots.length)); }
+        } // --- End of Visualizer ---
+
+
+        // ================================================================
+        // --- Part 5: Main Simulation Logic & Control ---
+        // ================================================================
+        let environment;
+        let hardcodedBots = [];
+        let learningBots = [];
+        let allBots = [];
+        let streamEncoder; // Bridge between simulation and library
+        let hierarchicalPredictor; // The HTM-inspired prediction library instance
+        let visualizer;
+
+        let simulationTimeoutId = null;
+        let isRunning = false;
+        let roundNumber = 0;
+        let hcTotalGoals = 0;
+        let learningTotalGoals = 0;
+
+        // Reads UI parameter values and compares to current *live* CONFIG
+        function getConfigNeedsFromUI() { const needs = { roundReset: false, fullReset: false, changedParams: [] }; if (!paramGridInput) return needs; const check = (paramKey, uiValue, configValue, isFullReset, isFloat = false) => { let configComp = isFloat ? Number(configValue).toFixed(5) : configValue; let uiComp = isFloat ? Number(uiValue).toFixed(5) : uiValue; if (configComp === undefined || uiComp === undefined || String(uiComp) !== String(configComp)) { needs.changedParams.push(paramKey); if (isFullReset) needs.fullReset = true; else needs.roundReset = true; } }; const readInt = (el) => parseInt(el.value); const readFloat = (el) => parseFloat(el.value); const readPercent = (el) => parseFloat(el.value) / 100.0; check('grid', readInt(paramGridInput), CONFIG.GRID_SIZE, true); check('goals', readInt(paramGoalsInput), CONFIG.NUM_GOALS, true); check('hc-bots', readInt(paramHcBotsInput), CONFIG.NUM_HC_BOTS, true); check('learning-bots', readInt(paramLearningBotsInput), CONFIG.NUM_LEARNING_BOTS, true); check('vis-range', readInt(paramVisRangeInput), CONFIG.VISIBILITY_RANGE, true); check('sdr-size', readInt(paramSdrSizeInput), CONFIG.SDR_SIZE, true); check('sdr-active', readInt(paramSdrActiveInput), CONFIG.SDR_ACTIVE_BITS, true); check('levels', readInt(paramLevelsInput), CONFIG.NUM_HIERARCHY_LEVELS, true); check('sp-columns', readInt(paramSpColumnsInput), CONFIG.SP_NUM_COLUMNS, true); check('col-active', readInt(paramColActiveInput), CONFIG.COLUMN_ACTIVE_BITS, true); check('sp-lr', readFloat(paramSpLrInput), CONFIG.SP_LEARNING_RATE, true, true); check('tm-lr', readFloat(paramTmLrInput), CONFIG.TM_LEARNING_RATE, true, true); check('anomaly-thresh', readFloat(paramAnomalyThreshInput), CONFIG.ANOMALY_THRESHOLD, true, true); check('anomaly-boost', readFloat(paramAnomalyBoostInput), CONFIG.ANOMALY_LEARN_BOOST, true, true); check('max-steps', readInt(paramMaxStepsInput), CONFIG.MAX_STEPS_PER_ROUND, false); if (needs.fullReset) needs.roundReset = true; return needs; }
+        // Reads UI values and updates the global CONFIG object. Returns needs *before* update.
+        function applyConfigFromUI(checkNeedsFirst = true) { if (!paramGridInput) return { roundReset: false, fullReset: false, changedParams: [] }; const needsBeforeUpdate = checkNeedsFirst ? getConfigNeedsFromUI() : { roundReset: false, fullReset: false, changedParams: [] }; const readInt = (el, def, min = -Infinity, max = Infinity) => { const val = parseInt(el.value); return isNaN(val) ? def : Math.max(min, Math.min(max, val)); }; const readFloat = (el, def, min = -Infinity, max = Infinity) => { const val = parseFloat(el.value); return isNaN(val) ? def : Math.max(min, Math.min(max, val)); }; const readPercent = (el, def) => readFloat(el, def * 100, 0, 100) / 100.0; // Immediate updates
+            CONFIG.SIMULATION_SPEED_MS = readInt(paramSpeedInput, DEFAULT_CONFIG.SIMULATION_SPEED_MS, 1, 1000); CONFIG.FREEZE_DURATION = readInt(paramFreezeInput, DEFAULT_CONFIG.FREEZE_DURATION, 1, 100); CONFIG.LEARNING_BOT_BASE_EXPLORATION_RATE = readPercent(paramExploreInput, DEFAULT_CONFIG.LEARNING_BOT_BASE_EXPLORATION_RATE); CONFIG.LEARNING_BOT_RULE_EXPLORE_PERCENT = readPercent(paramRuleExplorePctInput, DEFAULT_CONFIG.LEARNING_BOT_RULE_EXPLORE_PERCENT); // Reset Required updates
+            CONFIG.GRID_SIZE = readInt(paramGridInput, DEFAULT_CONFIG.GRID_SIZE, 15, 80); CONFIG.NUM_GOALS = readInt(paramGoalsInput, DEFAULT_CONFIG.NUM_GOALS, 1, 50); CONFIG.NUM_HC_BOTS = readInt(paramHcBotsInput, DEFAULT_CONFIG.NUM_HC_BOTS, 0, 10); CONFIG.NUM_LEARNING_BOTS = readInt(paramLearningBotsInput, DEFAULT_CONFIG.NUM_LEARNING_BOTS, 0, 10); CONFIG.MAX_STEPS_PER_ROUND = readInt(paramMaxStepsInput, DEFAULT_CONFIG.MAX_STEPS_PER_ROUND, 100, 10000); CONFIG.VISIBILITY_RANGE = readInt(paramVisRangeInput, DEFAULT_CONFIG.VISIBILITY_RANGE, 2, 20); // Library params (Reset All Req)
+            CONFIG.SDR_SIZE = readInt(paramSdrSizeInput, DEFAULT_CONFIG.SDR_SIZE, 512, 8192); CONFIG.SDR_ACTIVE_BITS = readInt(paramSdrActiveInput, DEFAULT_CONFIG.SDR_ACTIVE_BITS, 10, 160); CONFIG.SDR_ACTIVE_BITS = Math.min(CONFIG.SDR_ACTIVE_BITS, Math.floor(CONFIG.SDR_SIZE * 0.5)); paramSdrActiveInput.value = CONFIG.SDR_ACTIVE_BITS; // Update UI if clamped
+            CONFIG.NUM_HIERARCHY_LEVELS = readInt(paramLevelsInput, DEFAULT_CONFIG.NUM_HIERARCHY_LEVELS, 1, 5); CONFIG.SP_NUM_COLUMNS = readInt(paramSpColumnsInput, DEFAULT_CONFIG.SP_NUM_COLUMNS, 256, 4096); CONFIG.COLUMN_ACTIVE_BITS = readInt(paramColActiveInput, DEFAULT_CONFIG.COLUMN_ACTIVE_BITS, 5, 80); CONFIG.COLUMN_ACTIVE_BITS = Math.min(CONFIG.COLUMN_ACTIVE_BITS, Math.floor(CONFIG.SP_NUM_COLUMNS * 0.5)); paramColActiveInput.value = CONFIG.COLUMN_ACTIVE_BITS; // Update UI if clamped
+            CONFIG.SP_LEARNING_RATE = readFloat(paramSpLrInput, DEFAULT_CONFIG.SP_LEARNING_RATE, 0.001, 0.2); CONFIG.TM_LEARNING_RATE = readFloat(paramTmLrInput, DEFAULT_CONFIG.TM_LEARNING_RATE, 0.001, 0.2); CONFIG.ANOMALY_THRESHOLD = readFloat(paramAnomalyThreshInput, DEFAULT_CONFIG.ANOMALY_THRESHOLD, 0.05, 0.8); CONFIG.ANOMALY_LEARN_BOOST = readFloat(paramAnomalyBoostInput, DEFAULT_CONFIG.ANOMALY_LEARN_BOOST, 1.0, 5.0); // Ensure non-UI defaults are present (may not be strictly needed if not changed via UI)
+            CONFIG.SP_POTENTIAL_PCT = DEFAULT_CONFIG.SP_POTENTIAL_PCT; CONFIG.SP_STIMULUS_THRESHOLD = DEFAULT_CONFIG.SP_STIMULUS_THRESHOLD; CONFIG.MAX_OBSTACLES_FACTOR = DEFAULT_CONFIG.MAX_OBSTACLES_FACTOR; CONFIG.MIN_OBSTACLES_FACTOR = DEFAULT_CONFIG.MIN_OBSTACLES_FACTOR; CONFIG.MIN_GOAL_START_DISTANCE_FACTOR = DEFAULT_CONFIG.MIN_GOAL_START_DISTANCE_FACTOR; CONFIG.MIN_BOT_START_DISTANCE_FACTOR = DEFAULT_CONFIG.MIN_BOT_START_DISTANCE_FACTOR; CONFIG.MIN_BOT_GOAL_DISTANCE_FACTOR = DEFAULT_CONFIG.MIN_BOT_GOAL_DISTANCE_FACTOR; updateUIFromConfig(); // Refresh UI to show clamped values etc.
+            return needsBeforeUpdate;
+        }
+
+        // Sets up or resets simulation components based on CONFIG and reset requirements
+        function setupSimulation(isFullResetRequest = false) {
+             console.log(`--- Setting up Simulation (Full Reset Requested: ${isFullResetRequest}) ---`);
+             if (!statusEl) { console.error("Setup called before UI ready."); return false; }
+             statusEl.textContent = "Status: Initializing...";
+             stopSimulationInternal();
+
+             const needs = applyConfigFromUI(true); // Apply UI changes to CONFIG, get reset needs
+             const performFullReset = isFullResetRequest || needs.fullReset;
+             const performRoundReset = performFullReset || needs.roundReset || !environment;
+
+             // --- Perform Full Reset Actions (Library, Encoder, Scores) ---
+             if (performFullReset) {
+                 console.log("Performing Full Reset (Predictor Library, Encoder, Scores)...");
+                 if (hierarchicalPredictor) { try { hierarchicalPredictor.dispose(); } catch (e) { console.error("Error disposing predictor:", e); } }
+                 hierarchicalPredictor = null; streamEncoder = null;
+                 try {
+                     console.log("Creating new Hierarchical Predictor (HTM Library)...");
+                     hierarchicalPredictor = new HierarchicalPredictor(CONFIG);
+                     console.log("Creating new Stream Encoder/Decoder...");
+                     // Pass the predictor instance to the encoder for decoding purposes
+                     streamEncoder = new StreamEncoder(CONFIG, hierarchicalPredictor);
+                 } catch (error) { console.error("CRITICAL: Failed to create SDR Library or Encoder:", error); stopSimulationUI(`Error: Failed AI init! ${error.message || ''}`); return false; }
+                 roundNumber = 0; hcTotalGoals = 0; learningTotalGoals = 0;
+                 console.log("New Library/Encoder created. Scores reset.");
+             } else if (!hierarchicalPredictor || !streamEncoder || streamEncoder.predictorLibrary !== hierarchicalPredictor) { // Safety check
+                 console.warn("Predictor/Encoder missing or mismatch, forcing full reset actions.");
+                 try {
+                     if (hierarchicalPredictor) hierarchicalPredictor.dispose();
+                     hierarchicalPredictor = new HierarchicalPredictor(CONFIG);
+                     streamEncoder = new StreamEncoder(CONFIG, hierarchicalPredictor);
+                     roundNumber = 0; hcTotalGoals = 0; learningTotalGoals = 0;
+                 } catch (error) { console.error("Forced AI init failed:", error); stopSimulationUI(`Error: Forced AI init failed! ${error.message}`); return false; }
+             } else { console.log("Reusing existing Predictor Library and Encoder."); }
+
+             // --- Perform Round Reset Actions (Environment Layout, Bot Positions) ---
+             if (performRoundReset) {
+                 console.log(`Creating/Resetting Environment & Bots (Grid: ${CONFIG.GRID_SIZE}x${CONFIG.GRID_SIZE}, HC: ${CONFIG.NUM_HC_BOTS}, Lrn: ${CONFIG.NUM_LEARNING_BOTS})...`);
+                 environment = null; hardcodedBots = []; learningBots = []; allBots = [];
+                 try {
+                     // Pass the distance config factors to the environment constructor
+                     const configFactors = { MIN_GOAL_START_DISTANCE_FACTOR: CONFIG.MIN_GOAL_START_DISTANCE_FACTOR, MIN_BOT_START_DISTANCE_FACTOR: CONFIG.MIN_BOT_START_DISTANCE_FACTOR, MIN_BOT_GOAL_DISTANCE_FACTOR: CONFIG.MIN_BOT_GOAL_DISTANCE_FACTOR };
+                     environment = new GridEnvironment(CONFIG.GRID_SIZE, CONFIG.NUM_GOALS, CONFIG.MIN_OBSTACLES_FACTOR, CONFIG.MAX_OBSTACLES_FACTOR, CONFIG.NUM_HC_BOTS, CONFIG.NUM_LEARNING_BOTS, configFactors);
+                 } catch(error) { console.error("Failed to create Environment:", error); stopSimulationUI(`Error: Failed Env init! ${error.message}`); return false; }
+
+                 const totalBotsRequired = CONFIG.NUM_HC_BOTS + CONFIG.NUM_LEARNING_BOTS;
+                 if (!environment.startPositions || environment.startPositions.length !== totalBotsRequired) { console.error(`Bot/StartPos count mismatch! Req: ${totalBotsRequired}, Got: ${environment?.startPositions?.length}. Check Env placement logic.`); stopSimulationUI("Error: Bot start pos mismatch!"); return false; }
+
+                 let botCreationError = false;
+                 environment.startPositions.forEach((startInfo) => {
+                     try {
+                         if (startInfo.type === 'Hardcoded') hardcodedBots.push(new HardcodedBot(startInfo, startInfo.id));
+                         else if (startInfo.type === 'Learning') {
+                             if (!streamEncoder || !hierarchicalPredictor) throw new Error("AI components missing for LearningBot.");
+                             learningBots.push(new LearningBot(startInfo, startInfo.id, streamEncoder, hierarchicalPredictor, CONFIG));
+                         }
+                     } catch (botError) { console.error(`Failed to create bot ${startInfo.id}:`, botError); stopSimulationUI(`Error: Failed Bot init! ${botError.message}`); botCreationError = true; }
+                 });
+                 if (botCreationError) return false;
+
+                 allBots = [...hardcodedBots, ...learningBots];
+                 if (!performFullReset) roundNumber = Math.max(1, roundNumber + 1); else roundNumber = 1; // Increment round unless it was a full reset
+                 console.log("Environment and Bots reset/created.");
+             } else { console.log("Reusing existing environment and bot instances."); }
+
+             // --- Initialize or Update Visualizer ---
+             if (!visualizer) { try { visualizer = new Visualizer('gridCanvas'); } catch (error) { console.error("Failed to create Visualizer:", error); stopSimulationUI(`Error: Failed Vis init! ${error.message}`); return false; } }
+             const containerWidth = gridContainerEl ? gridContainerEl.offsetWidth : 600;
+             visualizer.updateGridDimensions(CONFIG.GRID_SIZE, containerWidth); // Ensure visualizer matches new grid size
+             visualizer.updateEnvironment(environment.goals, environment.obstacles, environment.claimedGoals);
+
+             if (performRoundReset) resetRoundStateInternal(false); // Reset bot states/positions for the new/reset env
+
+             updateInfoPanel(); updateLibraryStatePanel(); // Update UI panels
+             checkResetHints(); // Clear acted-upon hints
+             statusEl.textContent = "Status: Ready";
+             console.log("Setup complete.");
+             return true; // Success
+        }
+
+        // Resets only the state *within* a round (bot positions, claimed goals, etc.)
+        function resetRoundStateInternal(randomizeEnv = true) {
+            if (!environment || !visualizer || !allBots) { console.error("Cannot reset round state: Components missing."); stopSimulationUI("Error: Components missing!"); return false; }
+            if (randomizeEnv) { // New layout for subsequent rounds
+                roundNumber++; console.log(`%c--- Starting Round ${roundNumber} ---`, 'color: green; font-weight: bold;');
+                if(statusEl) statusEl.textContent = `Status: Starting Round ${roundNumber}...`;
+                try { environment.randomize(); } catch(error) { console.error("Error randomizing environment:", error); stopSimulationUI("Error randomizing env!"); return false; }
+                visualizer.updateEnvironment(environment.goals, environment.obstacles, environment.claimedGoals); // Update vis with new layout
+                 if (!environment.startPositions || environment.startPositions.length !== allBots.length) { console.error(`Start pos mismatch post-randomize! (${environment?.startPositions?.length} vs ${allBots.length})`); stopSimulationUI("Error: Bot count mismatch!"); return false; }
+            } else { // Just reset state for current layout (e.g., after initial setup)
+                environment.claimedGoals.clear(); visualizer.updateEnvironment(environment.goals, environment.obstacles, environment.claimedGoals);
+                if (!environment.startPositions || environment.startPositions.length !== allBots.length) { console.error(`Start pos mismatch during state reset! (${environment?.startPositions?.length} vs ${allBots.length})`); stopSimulationUI("Error: Bot count mismatch!"); return false; }
+            }
+            // Reset bots to their start positions
+            allBots.forEach(bot => { const startInfo = environment.startPositions.find(sp => sp.id === bot.id); if (startInfo) bot.reset(startInfo); else { console.error(`No start pos for bot ${bot.id}!`); bot.reset({ x: 1, y: 1 }); } });
+            updateInfoPanel(); updateLibraryStatePanel(); visualizer.update(hardcodedBots, learningBots); // Redraw bots
+            return true;
+        }
+
+        // Updates the main information panel UI elements
+        function updateInfoPanel() {
+            if (!statusEl || !learningAvgAnomalyEl) return; // UI not ready
+            roundInfoEl.textContent = `Round: ${roundNumber}`; hcTotalGoalsEl.textContent = hcTotalGoals; learningTotalGoalsEl.textContent = learningTotalGoals;
+            learningAvgAnomalyEl.textContent = (hierarchicalPredictor && hierarchicalPredictor.layers.length > 0) ? hierarchicalPredictor.getAverageAnomaly(0).toFixed(4) : 'N/A';
+            learningSdrInfoEl.textContent = streamEncoder ? `${streamEncoder.sdrSize} / ${streamEncoder.actualTotalActiveBits}` : 'N/A'; learningLevelsInfoEl.textContent = hierarchicalPredictor ? hierarchicalPredictor.numLevels : 'N/A'; learningColsInfoEl.textContent = hierarchicalPredictor ? hierarchicalPredictor.config.SP_NUM_COLUMNS : 'N/A';
+            const hcActive = hardcodedBots.filter(b => b.freezeTimer <= 0).length; const learningActive = learningBots.filter(b => b.freezeTimer <= 0).length;
+            hcCountEl.textContent = hardcodedBots.length; hcActiveEl.textContent = hcActive; hcFrozenEl.textContent = hardcodedBots.length - hcActive; hcGoalsRoundEl.textContent = hardcodedBots.reduce((sum, b) => sum + b.goalsReachedThisRound, 0);
+            learningCountEl.textContent = learningBots.length; learningActiveEl.textContent = learningActive; learningFrozenEl.textContent = learningBots.length - learningActive; learningGoalsRoundEl.textContent = learningBots.reduce((sum, b) => sum + b.goalsReachedThisRound, 0); learningModeExampleEl.textContent = learningBots.length > 0 ? learningBots[0].mode : 'N/A';
+        }
+        // Updates the panel showing internal library state (for the first learning bot)
+        function updateLibraryStatePanel() {
+            if (!lastInputSdrEl || !hierarchicalPredictor || learningBots.length === 0) { // Clear if no library or learning bots
+                if(lastInputSdrEl) lastInputSdrEl.textContent = 'N/A'; if(lastActualColsEl) lastActualColsEl.textContent = 'N/A'; if(lastPredictedColsEl) lastPredictedColsEl.textContent = 'N/A'; if(currentAnomalyEl) currentAnomalyEl.textContent = 'N/A'; if(avgAnomalyDetailedEl) avgAnomalyDetailedEl.textContent = 'N/A'; if(anomalyHistoryEl) anomalyHistoryEl.textContent = 'N/A';
+                return;
+            }
+            try {
+                 const state = hierarchicalPredictor.getLayer0State();
+                 if (state) {
+                    const formatSdr = (sdr) => sdr && sdr.length > 0 ? `${sdr.length} indices: [${sdr.slice(0, 15).join(', ')}${sdr.length > 15 ? '...' : ''}]` : '[]';
+                    lastInputSdrEl.textContent = formatSdr(state.lastInputSdr);
+                    lastActualColsEl.textContent = formatSdr(state.lastActualColumnsSdr);
+                    lastPredictedColsEl.textContent = formatSdr(state.lastPredictedColumnsSdr);
+                    currentAnomalyEl.textContent = state.anomaly.toFixed(4);
+                    avgAnomalyDetailedEl.textContent = state.avgAnomaly.toFixed(4);
+                    anomalyHistoryEl.textContent = state.anomalyHistory.map(a => a.toFixed(2)).join(', ');
+                 } else { // Clear if state is null
+                     lastInputSdrEl.textContent = 'N/A'; lastActualColsEl.textContent = 'N/A'; lastPredictedColsEl.textContent = 'N/A'; currentAnomalyEl.textContent = 'N/A'; avgAnomalyDetailedEl.textContent = 'N/A'; anomalyHistoryEl.textContent = 'N/A';
+                 }
+            } catch (e) { console.error("Error updating library state panel:", e); }
+        }
+
+
+        // --- Main Simulation Loop Step ---
+        function simulationStep() {
+            if (!isRunning || !environment || !visualizer || !allBots || !streamEncoder || !hierarchicalPredictor) { if (isRunning) { console.error("Sim step skipped - critical components missing."); stopSimulationUI("Error: Sim components missing!"); } return; }
+
+            let roundOverSignal = null; let errorOccurred = false; const stepStartTime = performance.now();
+
+            for (let i = 0; i < allBots.length; i++) {
+                 const bot = allBots[i];
+                 if (errorOccurred || roundOverSignal) break; // Stop processing if error or round end detected
+                 if (bot.steps >= CONFIG.MAX_STEPS_PER_ROUND) continue; // Bot finished its steps for the round
+
+                 let action = -1; let senses = null; let nextPos = bot.pos;
+
+                 try {
+                     // 1. Get Sensory Input (relative to the bot)
+                     senses = environment.getSensoryData(bot, allBots, CONFIG.VISIBILITY_RANGE);
+                     // 2. Get Action from Bot (includes internal prediction/learning for LearningBots)
+                     action = bot.getAction(senses, environment, allBots); // Pass global 'environment' here
+                     // 3. Resolve Action in the Environment
+                     if (action === -1 || bot.freezeTimer > 0) { nextPos = bot.pos; } // Frozen or chose no action
+                     else if (action >= 0 && action <= 3) { // Move Action
+                         const intendedPos = environment.performMoveAction(bot.pos, action);
+                         if (environment.isValid(intendedPos)) { nextPos = intendedPos; } else { nextPos = bot.pos; /* Move failed */ }
+                     } else if (action === 4) { // Punch Action
+                         nextPos = bot.pos; // Punching doesn't move the bot
+                         let targetBot = null; // Find adjacent, non-frozen opponent
+                         for(const otherBot of allBots) { if(otherBot.id !== bot.id && manhattanDistance(bot.pos, otherBot.pos) === 1 && otherBot.freezeTimer <= 0) { targetBot = otherBot; break; } }
+                         if(targetBot) { targetBot.applyFreeze(CONFIG.FREEZE_DURATION); }
+                     } else if (action === 5) { // Claim Goal Action
+                         nextPos = bot.pos; // Claiming doesn't move the bot
+                         // ***** CORRECTED LINE HERE *****
+                         const adjacentGoal = environment.getAdjacentUnclaimedGoal(bot.pos); // Use 'environment', not 'env'
+                         // ***** END OF CORRECTION *****
+                         if (adjacentGoal && environment.claimGoal(adjacentGoal.id, bot.id)) {
+                             bot.goalsReachedThisRound++;
+                             if (bot.type === 'Hardcoded') hcTotalGoals++; else learningTotalGoals++;
+                             visualizer.updateEnvironment(environment.goals, environment.obstacles, environment.claimedGoals); // Update vis immediately for claimed goal
+                             if (environment.areAllGoalsClaimed()) { roundOverSignal = 'goals_claimed'; console.log(`--- Final goal ${adjacentGoal.id} claimed by ${bot.id}! ---`); }
+                         }
+                     } else { nextPos = bot.pos; /* Unknown action */ }
+                     // 4. Update Bot State (position, steps, freeze timer)
+                     bot.update(nextPos, action);
+                 } catch (error) { console.error(`Error processing turn for bot ${bot.id}:`, error); stopSimulationUI(`Error processing ${bot.id}!`); errorOccurred = true; break; }
+            } // End bot turn loop
+
+            if (errorOccurred) return; // Stop step if error occurred
+
+            // Update Visualization and UI Info Panels
+            try {
+                visualizer.update(hardcodedBots, learningBots);
+                updateInfoPanel();
+                updateLibraryStatePanel(); // Update the library state display
+            }
+            catch(error) { console.error("Error UI/Vis update:", error); stopSimulationUI("Error in UI Update!"); return; }
+
+            // Check Round End Conditions
+            if (!roundOverSignal) { const allBotsDone = allBots.length === 0 || allBots.every(b => b.steps >= CONFIG.MAX_STEPS_PER_ROUND); if (allBotsDone) { roundOverSignal = 'max_steps'; } else if (environment.areAllGoalsClaimed()) { roundOverSignal = 'goals_claimed'; } }
+
+            // Handle Round End or Schedule Next Step
+            if (roundOverSignal) {
+                 const reason = roundOverSignal === 'goals_claimed' ? "All goals claimed" : "Max steps reached";
+                 console.log(`%c--- End of Round ${roundNumber} (${reason}) ---`, 'color: orange; font-weight: bold;');
+                 if (isRunning) { // Automatically start next round if still running
+                     try {
+                         if(resetRoundStateInternal(true)) { // Reset state & randomize env for new round
+                             clearTimeout(simulationTimeoutId); simulationTimeoutId = setTimeout(simulationStep, CONFIG.SIMULATION_SPEED_MS); // Schedule next step after reset
+                         } else { stopSimulationUI("Error auto-resetting round!"); }
+                     } catch (resetError) { console.error("Error auto-resetting round:", resetError); stopSimulationUI("Error resetting round!"); }
+                 } else { stopSimulationUI(`Round ${roundNumber} Finished (${reason}). Stopped.`); } // Stopped manually during end processing
+            } else if (isRunning) { // Round continues, schedule next step
+                 const stepEndTime = performance.now(); const stepDuration = stepEndTime - stepStartTime;
+                 const delay = Math.max(1, CONFIG.SIMULATION_SPEED_MS - stepDuration); // Ensure minimum 1ms delay
+                 clearTimeout(simulationTimeoutId); simulationTimeoutId = setTimeout(simulationStep, delay);
+            }
+        } // --- End of simulationStep ---
+
+
+        // --- Control Functions (Start, Stop, Reset) ---
+        function startSimulation() { if (isRunning) return; console.log("Attempting to start simulation..."); if(!statusEl) { console.error("Start called before UI initialized."); return; } const needs = getConfigNeedsFromUI(); if (needs.fullReset) { stopSimulationUI("Settings changed. 'Reset All' required."); console.warn("Full reset required, cannot start."); return; } if (needs.roundReset) { console.warn("Settings changed requiring new round. Env/Bots will reset on start."); } const setupSuccess = setupSimulation(false); // Setup/reset based on needs
+            if (!setupSuccess) { console.error("Simulation setup failed. Cannot start."); return; } // Exit if setup failed
+            // Verify components after setup
+            if (!hierarchicalPredictor || !environment || !visualizer || !streamEncoder || !allBots || allBots.length !== (CONFIG.NUM_HC_BOTS + CONFIG.NUM_LEARNING_BOTS)) { console.error("Components missing or mismatch after setup."); stopSimulationUI("Status: Initialization Failed!"); return; }
+            isRunning = true; statusEl.textContent = "Status: Running..."; console.log("Simulation started."); resetRoundButton.disabled = true; resetFullButton.disabled = true; startButton.disabled = true; stopButton.disabled = false; checkResetHints(); clearTimeout(simulationTimeoutId); simulationTimeoutId = setTimeout(simulationStep, 10); // Start loop
+        }
+        function stopSimulationInternal(updateButtons = true) { if (simulationTimeoutId) clearTimeout(simulationTimeoutId); simulationTimeoutId = null; isRunning = false; if (updateButtons) { if(resetRoundButton) resetRoundButton.disabled = false; if(resetFullButton) resetFullButton.disabled = false; if(startButton) startButton.disabled = false; if(stopButton) stopButton.disabled = true; } }
+        function stopSimulationUI(message = "Stopped.") { const wasRunning = isRunning; stopSimulationInternal(true); if(wasRunning) console.log("Simulation stopped."); if(statusEl) statusEl.textContent = `Status: ${message}`; updateInfoPanel(); updateLibraryStatePanel(); checkResetHints(); }
+        function handleResetRound() { console.log("--- Requesting New Round ---"); if(!statusEl) return; const wasRunning = isRunning; stopSimulationInternal(); const needs = applyConfigFromUI(true); // Apply UI first
+            if (needs.fullReset) { console.warn("Full reset needed due to parameter changes, performing full reset instead."); handleFullReset(); return; }
+            try { if (setupSimulation(false)) { // Perform round reset (setup handles it)
+                    statusEl.textContent = "Status: New Round Ready."; if (wasRunning) statusEl.textContent += " Press Start."; }
+            } catch (error) { console.error("Error handling new round:", error); stopSimulationUI("Error resetting round!"); }
+            finally { checkResetHints(); updateLibraryStatePanel(); /* Refresh state display */ }
+        }
+        function handleFullReset() { console.log("--- Performing Full Reset ---"); if(!statusEl) return; const wasRunning = isRunning; stopSimulationInternal(); try { applyConfigFromUI(false); // Apply UI changes before full reset
+                if (setupSimulation(true)) { // Request full reset
+                    statusEl.textContent = "Status: Full Reset Complete. Ready."; if (wasRunning) statusEl.textContent += " Press Start."; }
+            } catch (error) { console.error("Error handling full reset:", error); stopSimulationUI("Error during full reset!"); }
+            finally { checkResetHints(); updateLibraryStatePanel(); /* Refresh state display */ }
+        }
+        function updateSimulationSpeed() { const newSpeed = parseInt(paramSpeedInput.value); if (!isNaN(newSpeed) && newSpeed >= 1) { CONFIG.SIMULATION_SPEED_MS = newSpeed; console.log(`Sim speed updated to ${CONFIG.SIMULATION_SPEED_MS}ms`); } else { paramSpeedInput.value = CONFIG.SIMULATION_SPEED_MS; } }
+
+
+        // --- Initial Setup On Page Load ---
+        window.onload = () => {
+            console.log("Window loaded. Initializing Multi-Bot SDR Demo v4.2 (HTM Principles)...");
+            // Assign DOM elements (including new library state ones)
+            statusEl=document.getElementById('status'); roundInfoEl=document.getElementById('round-info'); hcTotalGoalsEl=document.getElementById('hc-total-goals'); learningTotalGoalsEl=document.getElementById('learning-total-goals'); learningAvgAnomalyEl=document.getElementById('learning-avg-anomaly'); hcCountEl=document.getElementById('hc-count'); hcActiveEl=document.getElementById('hc-active'); hcFrozenEl=document.getElementById('hc-frozen'); hcGoalsRoundEl=document.getElementById('hc-goals-round'); learningCountEl=document.getElementById('learning-count'); learningActiveEl=document.getElementById('learning-active'); learningFrozenEl=document.getElementById('learning-frozen'); learningGoalsRoundEl=document.getElementById('learning-goals-round'); learningModeExampleEl=document.getElementById('learning-mode-example'); learningSdrInfoEl=document.getElementById('learning-sdr-info'); learningLevelsInfoEl=document.getElementById('learning-levels-info'); learningColsInfoEl=document.getElementById('learning-cols-info'); paramSpeedInput=document.getElementById('param-speed'); paramFreezeInput=document.getElementById('param-freeze'); paramExploreInput=document.getElementById('param-explore'); paramRuleExplorePctInput=document.getElementById('param-rule-explore-pct'); paramVisRangeInput=document.getElementById('param-vis-range'); paramGridInput=document.getElementById('param-grid'); paramGoalsInput=document.getElementById('param-goals'); paramHcBotsInput=document.getElementById('param-hc-bots'); paramLearningBotsInput=document.getElementById('param-learning-bots'); paramMaxStepsInput=document.getElementById('param-max-steps'); paramSdrSizeInput=document.getElementById('param-sdr-size'); paramSdrActiveInput=document.getElementById('param-sdr-active'); paramLevelsInput=document.getElementById('param-levels'); paramSpColumnsInput=document.getElementById('param-sp-columns'); paramColActiveInput=document.getElementById('param-col-active'); paramSpLrInput=document.getElementById('param-sp-lr'); paramTmLrInput=document.getElementById('param-tm-lr'); paramAnomalyThreshInput=document.getElementById('param-anomaly-thresh'); paramAnomalyBoostInput=document.getElementById('param-anomaly-boost'); gridContainerEl=document.querySelector('.grid-container'); startButton=document.getElementById('startButton'); stopButton=document.getElementById('stopButton'); resetRoundButton=document.getElementById('resetRoundButton'); resetFullButton=document.getElementById('resetFullButton');
+            // Library state elements
+            lastInputSdrEl = document.getElementById('last-input-sdr'); lastActualColsEl = document.getElementById('last-actual-cols'); lastPredictedColsEl = document.getElementById('last-predicted-cols'); currentAnomalyEl = document.getElementById('current-anomaly'); avgAnomalyDetailedEl = document.getElementById('avg-anomaly-detailed'); anomalyHistoryEl = document.getElementById('anomaly-history');
+
+            if (!statusEl || !paramGridInput || !gridContainerEl || !startButton || !paramSdrSizeInput || !paramLearningBotsInput || !lastInputSdrEl) { console.error("CRITICAL: Failed to find essential UI elements!"); document.body.innerHTML = "<h1>Error: Page Initialization Failed! Check Console.</h1>"; return; }
+
+            try { loadParamsFromLocalStorage(); updateUIFromConfig(); } // Load saved params or use defaults
+            catch (e) { console.error("Error loading/applying initial params:", e); resetParamsToDefault(false); }
+
+            // Event Listeners
+            startButton.addEventListener('click', startSimulation); stopButton.addEventListener('click', () => stopSimulationUI()); resetRoundButton.addEventListener('click', handleResetRound); resetFullButton.addEventListener('click', handleFullReset); document.getElementById('updateSpeedButton').addEventListener('click', updateSimulationSpeed);
+            paramFreezeInput.addEventListener('change', () => { applyConfigFromUI(false); checkResetHints(); }); paramExploreInput.addEventListener('change', () => { applyConfigFromUI(false); checkResetHints(); }); paramRuleExplorePctInput.addEventListener('change', () => { applyConfigFromUI(false); checkResetHints(); });
+            const paramInputs = document.querySelectorAll('.parameters input[type=number], .parameters input[type=text]'); paramInputs.forEach(input => { input.addEventListener('input', checkResetHints); input.addEventListener('change', checkResetHints); }); // Add listeners to all param inputs
+            document.getElementById('saveParamsButton').addEventListener('click', saveParamsToLocalStorage);
+            document.getElementById('loadParamsButton').addEventListener('click', () => { if(isRunning) { alert("Stop simulation before loading params."); return; } if (loadParamsFromLocalStorage()) { updateUIFromConfig(); checkResetHints(); if(statusEl) statusEl.textContent = "Status: Params Loaded. Reset may be required."; } else alert("No saved parameters found or error loading."); });
+            document.getElementById('resetParamsButton').addEventListener('click', () => { if(isRunning) { alert("Stop simulation before resetting params."); return; } resetParamsToDefault(); checkResetHints(); if(statusEl) statusEl.textContent = "Status: Params Reset. Reset required."; });
+            let resizeTimeout; window.addEventListener('resize', () => { clearTimeout(resizeTimeout); resizeTimeout = setTimeout(() => { if (visualizer && environment) { try { const cw = gridContainerEl ? gridContainerEl.offsetWidth : 600; visualizer.updateGridDimensions(CONFIG.GRID_SIZE, cw); visualizer.update(hardcodedBots, learningBots); } catch(e){ console.error("Error during resize handling:", e); } } }, 150); });
+
+            // Initial Simulation Setup
+            statusEl.textContent = "Status: Initializing...";
+            try { if (!setupSimulation(false)) console.error("Initial simulation setup failed."); else statusEl.textContent = "Status: Ready"; }
+            catch(err) { console.error("Initialization failed:", err); if(statusEl) statusEl.textContent = "Status: Error! " + (err.message || ""); alert("Error initializing simulation: " + (err.message || "Check console")); }
+            stopButton.disabled = true; checkResetHints(); // Show initial hints if settings differ from defaults
+        };
+
+        // --- Global Error Handlers ---
+        window.onerror = function (message, source, lineno, colno, error) { console.error("Unhandled error:", message, "at", source, `:${lineno}:${colno}`, error); stopSimulationUI(`Critical Error! Check console.`); return true; };
+        window.onunhandledrejection = function (event) { console.error("Unhandled promise rejection:", event.reason); stopSimulationUI(`Critical Promise Error! Check console.`); event.preventDefault(); };
+
+    </script>
+</body>
+</html>
