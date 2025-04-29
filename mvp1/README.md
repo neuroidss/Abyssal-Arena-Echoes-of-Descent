@@ -1,4 +1,4 @@
-# vibe coding prompt for [Multi-Bot_SDR_Prediction_Demo_(v4.2_-_HTM_Principles).html]
+# vibe coding prompt for [SDR_Prediction_Demo](Multi-Bot_SDR_Prediction_Demo_(v4.2_-_HTM_Principles).html)
 ```
 first research how to make SDR (Sparse Distributed Representation) in tfjs.
 how to make example where some bot with hardcoded goals will be captured via senses and actions into sdr to learn as bottom-up spatiotemporal hierarchy and make bot with intelligent goals which next actions will be top-down predictions, and anomalies in predictions will rule learning process, make no difference between actions and senses, as future use is to feed eeg which has no specific actions and senses but they need to be learned together with actual sensors and actions when actual sensors and actions will be removed and will remain only eeg.
