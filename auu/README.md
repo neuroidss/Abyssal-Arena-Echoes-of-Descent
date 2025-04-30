@@ -1,0 +1,6 @@
+# vibe coding prompt
+```
+in another unique universe, think of what life could be like and choose setting for new psytrance game. there should be nothing that is in any other games, that is, completely unique game. it should be playable on xiaomi 13 lite (or pc with rtx 3060), javascript, everything in one html block. make full implementation. for maximum immersion in user interface don't use concepts from our universe in that unique universe. don't use symbols in user interface as they can be barely visible. use transformers.js and tensorflow.js. for online only link existing public assets and libraries which in future could be downloaded and inlined in single html, to work offline without internet. no download of music, generate music internally. only neural networks modes can be external. use all game and user inputs in neural networks and between neural networks uniformly, so possible to connect any new inputs like eeg. make in multiplayer but without internet, only existing game sensors and actuators. make audio context auto recreatable when user changes browser screen. make massive multiplayer, on openair. make sound more generative.
+
+add some psytrance feeling. and no peers seems connected, but think that sound from one somehow related to near others
+```
