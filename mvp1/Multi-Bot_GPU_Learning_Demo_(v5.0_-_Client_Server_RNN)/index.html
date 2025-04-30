@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <!-- Title Updated -->
+    <title>Multi-Bot GPU Learning Demo (v6.0 - Ext. Lib)</title>
+    <style>
+        /* --- CSS Styles (Mostly Unchanged from v5) --- */
+        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; margin: 0; padding: 10px; box-sizing: border-box; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; line-height: 1.4; background-color: #f0f0f0; }
+        canvas { border: 1px solid black; margin-bottom: 10px; display: block; max-width: 100%; height: auto; touch-action: none; background-color: #fff; }
+        .main-container { display: flex; flex-direction: row; flex-wrap: wrap; align-items: flex-start; width: 100%; max-width: 1500px; justify-content: center; gap: 20px; }
+        .grid-container { flex-basis: 600px; flex-grow: 1; max-width: 800px; min-width: 300px; display: flex; justify-content: center; align-items: center; }
+        .controls-and-info { display: flex; flex-direction: column; flex-basis: 450px; flex-grow: 1; min-width: 320px; max-width: 600px; background-color: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        .simulation-controls button, .param-controls button { margin: 5px 3px; padding: 8px 12px; cursor: pointer; border: none; border-radius: 4px; background-color: #3498db; color: white; font-size: 0.9em; }
+        .simulation-controls button:hover, .param-controls button:hover { background-color: #2980b9; }
+        .simulation-controls button:disabled, .param-controls button:disabled { background-color: #bdc3c7; cursor: not-allowed; }
+        #stopButton { background-color: #e74c3c; } #stopButton:hover { background-color: #c0392b; }
+        #resetRoundButton, #resetFullButton { background-color: #f39c12; } #resetRoundButton:hover, #resetFullButton:hover { background-color: #e67e22; }
+        #saveParamsButton, #loadParamsButton, #resetParamsButton { background-color: #2ecc71; font-size: 0.85em; padding: 6px 10px;}
+        #saveParamsButton:hover, #loadParamsButton:hover, #resetParamsButton:hover { background-color: #27ae60; }
+        .parameters { border: 1px solid #ccc; padding: 15px; margin-bottom: 15px; background-color: #f9f9f9; border-radius: 5px; }
+        .parameters h3 { margin-top: 0; margin-bottom: 15px; font-size: 1.1em; border-bottom: 1px solid #eee; padding-bottom: 5px; }
+        .parameters div.param-item { margin-bottom: 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 5px 10px; font-size: 0.9em; }
+        .parameters label { display: inline-block; min-width: 160px; font-weight: 500; flex-shrink: 0; }
+        .parameters input[type=number], .parameters input[type=text], .parameters select { width: 80px; padding: 5px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 3px; font-size: 1em; }
+        .parameters .tooltip { display: inline-block; background-color: #bbb; border-radius: 50%; width: 16px; height: 16px; text-align: center; line-height: 16px; font-size: 12px; color: white; font-weight: bold; vertical-align: middle; cursor: help; position: relative; margin-left: 3px; }
+        .parameters .reset-needed-hint { font-style: italic; font-size: 0.8em; color: #e67e22; margin-left: 5px; display: none; white-space: nowrap; }
+        /* Apply hints based on parent group class now */
+        .param-group.needs-reset-all .reset-needed-hint, .param-group.needs-new-round .reset-needed-hint { display: inline; }
+        .tooltip .tooltiptext { visibility: hidden; width: 220px; background-color: black; color: #fff; text-align: center; border-radius: 6px; padding: 5px; position: absolute; z-index: 1; bottom: 125%; left: 50%; margin-left: -110px; opacity: 0; transition: opacity 0.3s; font-size: 0.85em; font-weight: normal; line-height: normal; }
+        .tooltip:hover .tooltiptext, .tooltip:focus .tooltiptext, .tooltip:active .tooltiptext { visibility: visible; opacity: 1; }
+        .info { display: flex; flex-direction: column; gap: 12px; margin-top: 15px; }
+        .bot-type-info { border: 1px solid #eee; padding: 10px; font-size: 0.9em; background-color: #fdfdfd; border-radius: 4px; }
+        .bot-type-info b { display: block; margin-bottom: 5px; font-size: 1.05em;}
+        .stats { margin-top: 15px; font-weight: bold; padding: 12px; background-color: #eef; border-radius: 5px; font-size: 0.95em; line-height: 1.5; }
+        pre { background-color: #f0f0f0; padding: 5px; font-size: 0.8em; max-height: 80px; overflow-y: auto; white-space: pre-wrap; word-wrap: break-word; border: 1px solid #ddd; border-radius: 3px; }
+        .frozen-status { color: #0077cc; font-weight: bold; border: 1px dashed #0077cc; padding: 1px 3px; border-radius: 3px; display: inline-block; font-size: 0.85em; }
+        hr { width: 100%; margin: 20px 0; border: 0; border-top: 1px solid #ccc; }
+        .library-param-label { font-weight: bold; color: #2980b9; }
+        /* Class for groups needing reset */
+        .needs-reset-all h3::after, .needs-reset-all h4::after { content: ' (Reset All Req.)'; font-size: 0.8em; color: #e67e22; font-style: italic; margin-left: 5px;}
+        .needs-new-round h3::after, .needs-new-round h4::after { content: ' (New Round Req.)'; font-size: 0.8em; color: #e67e22; font-style: italic; margin-left: 5px;}
+        .param-group { border: 1px dashed #ddd; padding: 10px; margin-bottom: 12px; border-radius: 4px; }
+        .param-group h4 { margin-top: 0; margin-bottom: 10px; font-size: 1em; color: #555; }
+        #status, #round-info { margin-top: 8px; font-weight: bold; }
+        #status { font-size: 1.1em; } #round-info { font-size: 1em; color: #555;}
+        #status.error { color: #e74c3c; }
+        #library-state-info span { display: inline-block; margin-right: 10px; }
+        /* Hide feature flags by default */
+        .feature-flags { display: none; }
+    </style>
+</head>
+<body>
+    <!-- Title Updated -->
+    <h1>Multi-Bot GPU Learning Demo (v6.0 - Ext. Lib)</h1>
+    <p style="max-width: 800px; text-align: center; margin-bottom: 20px;">Bots navigate a grid to claim goals (Action 5 Req.). Learning Bots (Red) use a server-side **GPU-accelerated RNN Library** (running model: <code id="lib-rnn-info">N/A</code> on <code id="lib-device-info">N/A</code>) to process agnostic sensor/action streams and learn from prediction loss. Hardcoded Bots (Blue) use fixed rules. Bots can Punch (Action 4) to freeze opponents.</p>
+    <p style="font-size:0.9em; color: #e74c3c;"><i>Simulation & Learning Library run on the server. Parameter changes may require reset actions. Saving parameters also saves the learned library state.</i></p>
+
+    <div class="main-container">
+        <div class="grid-container">
+            <canvas id="gridCanvas"></canvas>
+        </div>
+
+        <div class="controls-and-info">
+             <div class="simulation-controls">
+                <button id="startButton" title="Start Simulation">Start</button>
+                <button id="stopButton" disabled title="Stop Simulation">Stop</button>
+                <button id="resetRoundButton" title="Start a New Round with Current Settings">New Round</button>
+                <button id="resetFullButton" title="Reset Server Environment and Learning Model">Reset All (Server)</button>
+                <div id="status">Status: Connecting...</div>
+                <div id="round-info">Round: 0</div>
+            </div>
+            <hr>
+            <div class="parameters">
+                 <h3>Simulation Parameters (LU=Live Update)</h3>
+                 <!-- Grouping parameters by reset requirement -->
+                 <div class="param-group"> <!-- Live Update Group -->
+                     <h4>Live Updates</h4>
+                     <div data-param="SIMULATION_SPEED_MS" class="param-item">
+                         <label for="param-SIMULATION_SPEED_MS">Sim Speed (ms delay):</label>
+                         <input type="number" id="param-SIMULATION_SPEED_MS" min="1" max="1000" step="10">
+                         <span class="tooltip" tabindex="0">?<span class="tooltiptext">Delay between simulation steps. Lower is faster. Updates immediately (LU).</span></span>
+                     </div>
+                     <div data-param="FREEZE_DURATION" class="param-item">
+                         <label for="param-FREEZE_DURATION">Freeze Duration (steps):</label>
+                         <input type="number" id="param-FREEZE_DURATION" min="1" max="100">
+                         <span class="tooltip" tabindex="0">?<span class="tooltiptext">How long a bot stays frozen after being punched. Updates immediately (LU).</span></span>
+                     </div>
+                     <div data-param="LEARNING_BOT_BASE_EXPLORATION_RATE" class="param-item">
+                         <label for="param-LEARNING_BOT_BASE_EXPLORATION_RATE">Base Explore Rate (%):</label>
+                         <input type="number" id="param-LEARNING_BOT_BASE_EXPLORATION_RATE" min="0" max="100">
+                         <span class="tooltip" tabindex="0">?<span class="tooltiptext">Base chance Learning Bot explores (randomly or via rules) instead of exploiting prediction. Updates immediately (LU).</span></span>
+                     </div>
+                      <div data-param="LEARNING_BOT_RULE_EXPLORE_PERCENT" class="param-item">
+                         <label for="param-LEARNING_BOT_RULE_EXPLORE_PERCENT">Rule Exploration (%):</label>
+                         <input type="number" id="param-LEARNING_BOT_RULE_EXPLORE_PERCENT" min="0" max="100">
+                         <span class="tooltip" tabindex="0">?<span class="tooltiptext">Percentage of *exploring* Learning Bots that will use rule-based logic (mimicking Hardcoded bot). Updates immediately (LU).</span></span>
+                     </div>
+                 </div>
+
+                 <div class="param-group needs-new-round"> <!-- New Round Req. Group -->
+                     <h4>Round Setup (New Round Req.)</h4>
+                     <div data-param="MAX_STEPS_PER_ROUND" class="param-item">
+                         <label for="param-MAX_STEPS_PER_ROUND">Max Steps/Round:</label>
+                         <input type="number" id="param-MAX_STEPS_PER_ROUND" min="100" max="10000">
+                         <span class="tooltip" tabindex="0">?<span class="tooltiptext">Max steps per bot before round ends. Requires 'New Round' on server.</span></span>
+                         <span class="reset-needed-hint">(New Round Req.)</span>
+                     </div>
+                 </div>
+
+                 <div class="param-group needs-reset-all"> <!-- Reset All Req. Group -->
+                     <h4>Environment (Reset All Req.)</h4>
+                     <div data-param="GRID_SIZE" class="param-item">
+                         <label for="param-GRID_SIZE">Grid Size:</label>
+                         <input type="number" id="param-GRID_SIZE" min="15" max="150"> <!-- Allow larger grid -->
+                         <span class="tooltip" tabindex="0">?<span class="tooltiptext">Width/Height of the grid. Requires 'Reset All' on server.</span></span>
+                         <span class="reset-needed-hint">(Reset Req.)</span>
+                     </div>
+                     <div data-param="NUM_GOALS" class="param-item">
+                         <label for="param-NUM_GOALS">Num Goals:</label>
+                         <input type="number" id="param-NUM_GOALS" min="1" max="200"> <!-- Allow more goals -->
+                         <span class="tooltip" tabindex="0">?<span class="tooltiptext">Number of goals per round. Requires 'Reset All' on server.</span></span>
+                         <span class="reset-needed-hint">(Reset Req.)</span>
+                     </div>
+                     <div data-param="NUM_HC_BOTS" class="param-item">
+                         <label for="param-NUM_HC_BOTS">Num Hardcoded Bots:</label>
+                         <input type="number" id="param-NUM_HC_BOTS" min="0" max="50"> <!-- Allow more bots -->
+                         <span class="tooltip" tabindex="0">?<span class="tooltiptext">Number of blue (rule-based) bots. Requires 'Reset All' on server.</span></span>
+                         <span class="reset-needed-hint">(Reset Req.)</span>
+                     </div>
+                     <div data-param="NUM_LEARNING_BOTS" class="param-item">
+                         <label for="param-NUM_LEARNING_BOTS">Num Learning Bots:</label>
+                         <input type="number" id="param-NUM_LEARNING_BOTS" min="0" max="50"> <!-- Allow more bots -->
+                         <span class="tooltip" tabindex="0">?<span class="tooltiptext">Number of red (learning) bots using the GPU library. Requires 'Reset All' on server.</span></span>
+                         <span class="reset-needed-hint">(Reset Req.)</span>
+                     </div>
+                     <div data-param="VISIBILITY_RANGE" class="param-item">
+                        <label for="param-VISIBILITY_RANGE">Sense Visibility Range:</label>
+                        <input type="number" id="param-VISIBILITY_RANGE" min="2" max="30"> <!-- Allow larger range -->
+                        <span class="tooltip" tabindex="0">?<span class="tooltiptext">How far bots sense. Affects input stream size. Requires 'Reset All'.</span></span>
+                        <span class="reset-needed-hint">(Reset Req.)</span>
+                    </div>
+                 </div>
+
+                 <div class="param-group needs-reset-all"> <!-- Reset All Req. Group -->
+                     <h4>GPU Learning Library (Reset All Req.)</h4>
+                     <div data-param="LIB_DEVICE" class="param-item">
+                        <label class="library-param-label" for="param-LIB_DEVICE">Device:</label>
+                        <select id="param-LIB_DEVICE">
+                            <option value="auto">Auto (CUDA if avail)</option>
+                            <option value="cuda">CUDA (Force GPU)</option>
+                            <option value="cpu">CPU (Force CPU)</option>
+                         </select>
+                        <span class="tooltip" tabindex="0">?<span class="tooltiptext">Device for PyTorch model. Requires 'Reset All'.</span></span>
+                         <span class="reset-needed-hint">(Reset Req.)</span>
+                     </div>
+                     <div data-param="LIB_RNN_TYPE" class="param-item">
+                        <label class="library-param-label" for="param-LIB_RNN_TYPE">RNN Type:</label>
+                        <select id="param-LIB_RNN_TYPE">
+                            <option value="LSTM">LSTM</option>
+                            <option value="GRU">GRU</option>
+                         </select>
+                        <span class="tooltip" tabindex="0">?<span class="tooltiptext">Type of recurrent unit. Requires 'Reset All'.</span></span>
+                        <span class="reset-needed-hint">(Reset Req.)</span>
+                     </div>
+                     <!-- Input Vector size is calculated, not set -->
+                      <div data-param="LIB_INPUT_VECTOR_SIZE" class="param-item">
+                        <label class="library-param-label" for="param-LIB_INPUT_VECTOR_SIZE">Input Vector Size:</label>
+                        <input type="number" id="param-LIB_INPUT_VECTOR_SIZE" readonly style="background:#eee;">
+                        <span class="tooltip" tabindex="0">?<span class="tooltiptext">Calculated size of the input vector based on feature flags. Requires 'Reset All' if changed implicitly.</span></span>
+                         <span class="reset-needed-hint">(Reset Req.)</span>
+                     </div>
+                     <div data-param="LIB_HIDDEN_SIZE" class="param-item">
+                        <label class="library-param-label" for="param-LIB_HIDDEN_SIZE">RNN Hidden Size:</label>
+                        <input type="number" id="param-LIB_HIDDEN_SIZE" min="32" max="2048" step="32"> <!-- Allow larger size -->
+                        <span class="tooltip" tabindex="0">?<span class="tooltiptext">Units per RNN layer. Larger = more capacity. Requires 'Reset All'.</span></span>
+                        <span class="reset-needed-hint">(Reset Req.)</span>
+                     </div>
+                     <div data-param="LIB_NUM_LAYERS" class="param-item">
+                        <label class="library-param-label" for="param-LIB_NUM_LAYERS">RNN Layers (Hierarchy):</label>
+                        <input type="number" id="param-LIB_NUM_LAYERS" min="1" max="8"> <!-- Allow more layers -->
+                        <span class="tooltip" tabindex="0">?<span class="tooltiptext">Number of stacked RNN layers. Requires 'Reset All'.</span></span>
+                        <span class="reset-needed-hint">(Reset Req.)</span>
+                     </div>
+                      <div data-param="LIB_DROPOUT" class="param-item">
+                        <label class="library-param-label" for="param-LIB_DROPOUT">RNN Dropout:</label>
+                        <input type="number" id="param-LIB_DROPOUT" min="0.0" max="0.7" step="0.05"> <!-- Allow more dropout -->
+                        <span class="tooltip" tabindex="0">?<span class="tooltiptext">Dropout between RNN layers (if >1). 0 = disabled. Requires 'Reset All'.</span></span>
+                         <span class="reset-needed-hint">(Reset Req.)</span>
+                     </div>
+                      <div data-param="LIB_LEARNING_RATE" class="param-item">
+                        <label class="library-param-label" for="param-LIB_LEARNING_RATE">Learning Rate:</label>
+                        <input type="number" id="param-LIB_LEARNING_RATE" min="0.00001" max="0.01" step="0.00001" > <!-- More precision -->
+                        <span class="tooltip" tabindex="0">?<span class="tooltiptext">Adam optimizer learning rate. Requires 'Reset All'.</span></span>
+                         <span class="reset-needed-hint">(Reset Req.)</span>
+                     </div>
+                     <div data-param="LIB_LOSS_TYPE" class="param-item">
+                        <label class="library-param-label" for="param-LIB_LOSS_TYPE">Loss Function:</label>
+                        <select id="param-LIB_LOSS_TYPE">
+                            <option value="MSE">MSE (Mean Squared Error)</option>
+                            <option value="L1">L1 (Mean Absolute Error)</option>
+                            <option value="Huber">Huber (Robust)</option>
+                         </select>
+                        <span class="tooltip" tabindex="0">?<span class="tooltiptext">How prediction error (anomaly) is measured. Requires 'Reset All'.</span></span>
+                        <span class="reset-needed-hint">(Reset Req.)</span>
+                     </div>
+                     <!-- Feature flags (hidden by default, maybe enable later) -->
+                     <div class="feature-flags needs-reset-all">
+                         <h4>Feature Encoding (Advanced - Reset All Req.)</h4>
+                         <!-- Add checkboxes for FEATURE_SCALAR_NAMES, FEATURE_BINARY_NAMES etc. if needed -->
+                         <!-- This would require more complex UI handling and recalculation -->
+                     </div>
+                 </div>
+
+
+                 <hr>
+                 <div class="param-controls">
+                    <button id="saveParamsButton" title="Save Current Parameters & Library State on Server">Save Params & Lib State</button>
+                    <button id="loadParamsButton" title="Load Parameters & Library State from Server Storage">Load Params & Lib State</button>
+                    <button id="resetParamsButton" title="Reset Server Parameters to Default & Clear Saved Library State">Reset Params to Default</button>
+                 </div>
+            </div>
+
+             <div class="stats">
+                Goals Claimed (Total):
+                Hardcoded (Blue): <span id="hc-total-goals">0</span> |
+                Learning (Red): <span id="learning-total-goals">0</span><br>
+                Learning Bot Loss (Avg): <span id="learning-avg-loss">N/A</span>
+            </div>
+
+            <div class="info">
+                <div id="hardcoded-info" class="bot-type-info">
+                    <b>Hardcoded Bots (<span id="hc-count">0</span>)</b>
+                    Active: <span id="hc-active">0</span> | <span class="frozen-status">Frozen: <span id="hc-frozen">0</span></span><br>
+                    Goals This Round: <span id="hc-goals-round">0</span>
+                </div>
+                <div id="learning-info" class="bot-type-info">
+                    <b>Learning Bots (<span id="learning-count">0</span>)</b>
+                    Active: <span id="learning-active">0</span> | <span class="frozen-status">Frozen: <span id="learning-frozen">0</span></span><br>
+                    Goals This Round: <span id="learning-goals-round">0</span><br>
+                    Last Mode (Bot L0): <span id="learning-mode-example">N/A</span><br>
+                    Last Loss (Bot L0): <span id="learning-last-loss-example">N/A</span>
+                </div>
+                 <div id="library-state-info" class="bot-type-info" style="font-size: 0.8em; max-height: 170px; overflow-y: auto;">
+                    <b>Library State (Server)</b><br>
+                    <span>Device: <b id="lib-device">N/A</b></span> |
+                    <span>RNN: <b id="lib-rnn-type">N/A</b></span> |
+                    <span>Layers: <b id="lib-layers">N/A</b></span> |
+                    <span>Hidden: <b id="lib-hidden">N/A</b></span> |
+                    <span>Input Vec: <b id="lib-input-vec">N/A</b></span> | <!-- Added -->
+                    <span>Tracked Bots: <b id="lib-tracked-bots">N/A</b></span> <br> <!-- Added -->
+                    Avg Loss (Recent): <b id="lib-avg-loss">N/A</b><br>
+                    Loss History (Last 15): <span id="lib-loss-history">N/A</span>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        // ================================================================
+        // --- Part 0: Frontend Globals and Config Stubs ---
+        // ================================================================
+        let ws = null; let visualizer = null; let currentBots = []; let currentEnvState = {}; let currentServerConfig = {}; let isServerRunning = false;
+
+        // --- UI Element Variables ---
+        let statusEl, roundInfoEl; let hcTotalGoalsEl, learningTotalGoalsEl, learningAvgLossEl; let hcCountEl, hcActiveEl, hcFrozenEl, hcGoalsRoundEl; let learningCountEl, learningActiveEl, learningFrozenEl, learningGoalsRoundEl, learningModeExampleEl, learningLastLossExampleEl; let paramInputs = {}; let gridContainerEl; let startButton, stopButton, resetRoundButton, resetFullButton;
+        // Library State UI
+        let libDeviceEl, libRnnTypeEl, libLayersEl, libHiddenEl, libAvgLossEl, libLossHistoryEl;
+        let libInputVecEl, libTrackedBotsEl; // New library info elements
+        let libRnnInfoEl, libDeviceInfoEl; // Info in header
+
+        // --- Visualizer Class (Unchanged from previous version) ---
+        class Visualizer {
+            constructor(canvasId) { this.canvas = document.getElementById(canvasId); if(!this.canvas) throw new Error(`Canvas #${canvasId} not found!`); this.ctx = this.canvas.getContext('2d'); this.gridSize = 0; this.cellSize = 0; this.currentGoals = []; this.currentObstacles = new Set(); this.claimedGoalsIDs = new Set(); this.lastContainerWidth = 0; }
+            updateGridDimensions(newGridSize, containerWidth) { const availableWidth = Math.max(300, containerWidth - 20); const newCellSize = Math.max(4, Math.floor(availableWidth / newGridSize)); /* Min cell size */ if (newGridSize !== this.gridSize || newCellSize !== this.cellSize || containerWidth !== this.lastContainerWidth ) { this.gridSize = newGridSize; this.cellSize = newCellSize; this.canvas.width = this.gridSize * this.cellSize; this.canvas.height = this.gridSize * this.cellSize; this.lastContainerWidth = containerWidth; console.log(`Visualizer resized: Grid=${this.gridSize}, Cell=${this.cellSize}, Canvas=${this.canvas.width}x${this.canvas.height}`); this.drawGrid(); } }
+            updateEnvironment(envData) { if(!envData) return; this.currentGoals = envData.goals || []; this.currentObstacles = new Set(envData.obstacles || []); this.claimedGoalsIDs = new Set(envData.claimedGoals || []); if(this.gridSize !== envData.size) { console.warn("Grid size mismatch between visualizer and environment data!"); this.updateGridDimensions(envData.size, this.lastContainerWidth || 600); } }
+            drawGrid() { if (!this.canvas || !this.ctx || !this.gridSize || !this.cellSize) return; this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height); if (this.cellSize >= 5) { /* Adjusted threshold */ this.ctx.strokeStyle = '#eee'; this.ctx.lineWidth = 1; for (let i = 0; i <= this.gridSize; i++) { const pos = Math.round(i * this.cellSize) + 0.5; this.ctx.beginPath(); this.ctx.moveTo(pos, 0); this.ctx.lineTo(pos, this.canvas.height); this.ctx.stroke(); this.ctx.beginPath(); this.ctx.moveTo(0, pos); this.ctx.lineTo(this.canvas.width, pos); this.ctx.stroke(); } } else { this.ctx.strokeStyle = '#ccc'; this.ctx.lineWidth = 1; this.ctx.strokeRect(0.5, 0.5, this.canvas.width - 1, this.canvas.height - 1); } this.ctx.fillStyle = '#555'; this.currentObstacles.forEach(obsString => { const [x, y] = obsString.split(',').map(Number); if(x>=0 && x<this.gridSize && y>=0 && y<this.gridSize) { this.ctx.fillRect(x * this.cellSize, y * this.cellSize, this.cellSize, this.cellSize); } }); this.ctx.textAlign = 'center'; this.ctx.textBaseline = 'middle'; const goalRadius = Math.max(1, this.cellSize * 0.35); const goalFontSize = Math.max(6, Math.floor(this.cellSize * 0.5)); this.currentGoals.forEach((goal) => { const drawX = goal.x * this.cellSize; const drawY = goal.y * this.cellSize; const centerX = drawX + this.cellSize / 2; const centerY = drawY + this.cellSize / 2; if(goal.x>=0 && goal.x<this.gridSize && goal.y>=0 && goal.y<this.gridSize) { if (this.claimedGoalsIDs.has(goal.id)) { this.ctx.fillStyle = '#d0d0d0'; this.ctx.fillRect(drawX, drawY, this.cellSize, this.cellSize); if (this.cellSize > 8) { /* Adjusted threshold */ this.ctx.fillStyle = '#888'; this.ctx.font = `bold ${goalFontSize}px sans-serif`; this.ctx.fillText("X", centerX, centerY); } } else { this.ctx.fillStyle = 'gold'; this.ctx.beginPath(); this.ctx.arc(centerX, centerY, goalRadius, 0, Math.PI * 2); this.ctx.fill(); if (this.cellSize > 10) { /* Adjusted threshold */ this.ctx.fillStyle = 'black'; this.ctx.font = `bold ${goalFontSize}px sans-serif`; this.ctx.fillText("G", centerX, centerY + 1); } } } }); }
+            drawBot(bot, botIndex, totalBotsOfType) { if (!bot || !bot.pos || bot.pos.x === undefined || bot.pos.y === undefined) return; const centerX = bot.pos.x * this.cellSize + this.cellSize / 2; const centerY = bot.pos.y * this.cellSize + this.cellSize / 2; const radius = Math.max(1.5, this.cellSize * 0.4); let baseColorRgb, alpha; const shadeFactor = totalBotsOfType <= 1 ? 0.5 : (botIndex / Math.max(1, totalBotsOfType-1)); if (bot.type === 'Hardcoded') { const blueShade = 120 + Math.floor(135 * shadeFactor); baseColorRgb = `0, 100, ${blueShade}`; alpha = 0.9; } else if (bot.type === 'Learning') { const redShade = 120 + Math.floor(135 * shadeFactor); baseColorRgb = `${redShade}, 50, 50`; alpha = 0.9; } else { baseColorRgb = `100, 100, 100`; alpha = 0.8; } this.ctx.fillStyle = `rgba(${baseColorRgb}, ${alpha})`; this.ctx.beginPath(); this.ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI); this.ctx.fill(); if (bot.freezeTimer > 0) { this.ctx.strokeStyle = '#00ccff'; this.ctx.lineWidth = Math.max(1, Math.floor(this.cellSize * 0.15)); this.ctx.beginPath(); this.ctx.arc(centerX, centerY, radius + this.ctx.lineWidth / 2, 0, 2 * Math.PI); this.ctx.stroke(); this.ctx.lineWidth = 1; } if (this.cellSize > 12) { /* Adjusted threshold */ this.ctx.fillStyle = 'white'; this.ctx.font = `bold ${Math.max(5, Math.floor(this.cellSize * 0.3))}px sans-serif`; this.ctx.textAlign = 'center'; this.ctx.textBaseline = 'middle'; const idNum = bot.id.match(/\d+/); if (idNum) this.ctx.fillText(idNum[0], centerX, centerY + 1); } }
+            update(botsData) { this.drawGrid(); const hardcodedBots = botsData.filter(b => b.type === 'Hardcoded'); const learningBots = botsData.filter(b => b.type === 'Learning'); hardcodedBots.forEach((bot, index) => this.drawBot(bot, index, hardcodedBots.length)); learningBots.forEach((bot, index) => this.drawBot(bot, index, learningBots.length)); }
+        }
+
+        // ================================================================
+        // --- Part 1: WebSocket Communication ---
+        // ================================================================
+        function connectWebSocket() {
+            const wsUrl = `ws://${window.location.host}/ws`; console.log(`Connecting to ${wsUrl}...`); ws = new WebSocket(wsUrl);
+            ws.onopen = () => { console.log("WebSocket established."); setStatus("Status: Connected. Ready."); resetRoundButton.disabled = false; resetFullButton.disabled = false; document.getElementById('saveParamsButton').disabled = false; document.getElementById('loadParamsButton').disabled = false; document.getElementById('resetParamsButton').disabled = false; checkResetHints(); };
+            ws.onmessage = (event) => { try { const message = JSON.parse(event.data); handleWebSocketMessage(message); } catch (error) { console.error("Failed to parse WebSocket message:", error, event.data); } };
+            ws.onerror = (error) => { console.error("WebSocket error:", error); setStatus("Status: Connection Error!", true); disableAllControls(); };
+            ws.onclose = (event) => { console.log("WebSocket closed:", event.code, event.reason); ws = null; setStatus(`Status: Disconnected (${event.code}). Reconnecting...`, event.code !== 1000); disableAllControls(); setTimeout(connectWebSocket, 5000); };
+        }
+        function sendMessage(type, payload = {}) { if (ws && ws.readyState === WebSocket.OPEN) { ws.send(JSON.stringify({ type, payload })); } else { console.warn("WebSocket not open. Cannot send message:", type); } }
+        function handleWebSocketMessage(message) {
+            const type = message.type; const payload = message.payload;
+            switch (type) {
+                case "status_update": setStatus(payload.message, payload.is_error); isServerRunning = payload.message.toLowerCase().includes("running"); updateButtonStates(); break;
+                case "config_update": console.log("Received config update."); currentServerConfig = payload; updateUIFromConfig(currentServerConfig); checkResetHints(); break; // Ensure hints checked after config update
+                case "environment_update": if (visualizer && payload) { currentEnvState = payload; visualizer.updateEnvironment(payload); visualizer.update(currentBots); } break;
+                case "bots_update": currentBots = payload || []; if (visualizer) { visualizer.update(currentBots); } updateInfoPanel(currentBots); break;
+                case "stats_update": updateStatsPanel(payload); break;
+                case "library_state_update": updateLibraryStatePanel(payload); break;
+                case "action_feedback": alert(`${payload.success ? 'Success' : 'Failed'}: ${payload.message}`); break;
+                default: console.warn("Received unknown message type:", type);
+            }
+        }
+
+        // ================================================================
+        // --- Part 2: UI Updates ---
+        // ================================================================
+        function setStatus(message, isError = false) { if (statusEl) { statusEl.textContent = message; statusEl.classList.toggle('error', isError); } }
+        function updateButtonStates() { const connected = ws && ws.readyState === WebSocket.OPEN; startButton.disabled = !connected || isServerRunning; stopButton.disabled = !connected || !isServerRunning; resetRoundButton.disabled = !connected || isServerRunning; resetFullButton.disabled = !connected || isServerRunning; document.getElementById('saveParamsButton').disabled = !connected; document.getElementById('loadParamsButton').disabled = !connected; document.getElementById('resetParamsButton').disabled = !connected;}
+        function disableAllControls() { startButton.disabled = true; stopButton.disabled = true; resetRoundButton.disabled = true; resetFullButton.disabled = true; document.getElementById('saveParamsButton').disabled = true; document.getElementById('loadParamsButton').disabled = true; document.getElementById('resetParamsButton').disabled = true;}
+        function updateUIFromConfig(configData) {
+            if (!configData) return; console.log("Updating UI from config");
+            for (const key in configData) {
+                 const inputEl = paramInputs[key];
+                 if (inputEl) {
+                     const value = configData[key];
+                     if (inputEl.type === 'number' && typeof value === 'number') {
+                          // Handle floats that need scaling for percentage display
+                          if (key === 'LEARNING_BOT_BASE_EXPLORATION_RATE' || key === 'LEARNING_BOT_RULE_EXPLORE_PERCENT') { inputEl.value = Math.round(value * 100); }
+                          // Handle small floats needing more precision
+                          else if (key === 'LIB_LEARNING_RATE' || key === 'LIB_DROPOUT') { inputEl.value = value.toFixed ? value.toFixed(6) : value; }
+                          else { inputEl.value = value; }
+                     } else if (inputEl.tagName === 'SELECT'){ inputEl.value = value; // Handle selects
+                     } else if (inputEl.readOnly) { inputEl.value = value; // Update readonly fields like input vector size
+                     } else { inputEl.value = value; } // Handle text/other
+                 }
+             }
+             if (visualizer && configData.GRID_SIZE && visualizer.gridSize !== configData.GRID_SIZE) { const cw = gridContainerEl ? gridContainerEl.offsetWidth : 600; visualizer.updateGridDimensions(configData.GRID_SIZE, cw); }
+             // Update header info
+             if(libRnnInfoEl) libRnnInfoEl.textContent = configData.LIB_RNN_TYPE || 'N/A';
+             if(libDeviceInfoEl) libDeviceInfoEl.textContent = configData.LIB_DEVICE || 'N/A';
+        }
+        function updateStatsPanel(statsData) {
+             if (!statsData || !roundInfoEl) return; roundInfoEl.textContent = `Round: ${statsData.roundNumber ?? 'N/A'}`; hcTotalGoalsEl.textContent = statsData.hcTotalGoals ?? '0'; learningTotalGoalsEl.textContent = statsData.learningTotalGoals ?? '0'; learningAvgLossEl.textContent = statsData.learningAvgLoss ?? 'N/A';
+        }
+        function updateInfoPanel(botsData) {
+             if (!botsData || !hcCountEl) return;
+             const hardcodedBots = botsData.filter(b => b.type === 'Hardcoded'); const learningBots = botsData.filter(b => b.type === 'Learning');
+             const hcActive = hardcodedBots.filter(b => b.freezeTimer <= 0).length; const learningActive = learningBots.filter(b => b.freezeTimer <= 0).length;
+             hcCountEl.textContent = hardcodedBots.length; hcActiveEl.textContent = hcActive; hcFrozenEl.textContent = hardcodedBots.length - hcActive; hcGoalsRoundEl.textContent = hardcodedBots.reduce((sum, b) => sum + (b.goalsReachedThisRound || 0), 0);
+             learningCountEl.textContent = learningBots.length; learningActiveEl.textContent = learningActive; learningFrozenEl.textContent = learningBots.length - learningActive; learningGoalsRoundEl.textContent = learningBots.reduce((sum, b) => sum + (b.goalsReachedThisRound || 0), 0);
+             learningModeExampleEl.textContent = learningBots.length > 0 ? (learningBots[0].mode || 'N/A') : 'N/A';
+             learningLastLossExampleEl.textContent = learningBots.length > 0 ? (learningBots[0].lastLoss || 'N/A') : 'N/A';
+        }
+        function updateLibraryStatePanel(stateData) {
+            if (!libDeviceEl) return; // Check one essential element
+            if (stateData) {
+                libDeviceEl.textContent = stateData.device || 'N/A';
+                libRnnTypeEl.textContent = stateData.rnnType || 'N/A';
+                libLayersEl.textContent = stateData.numLayers || 'N/A';
+                libHiddenEl.textContent = stateData.hiddenSize || 'N/A';
+                libInputVecEl.textContent = stateData.inputVectorSize || 'N/A'; // Update new element
+                libTrackedBotsEl.textContent = stateData.trackedBots || 'N/A'; // Update new element
+                libAvgLossEl.textContent = stateData.avgLoss || 'N/A';
+                libLossHistoryEl.textContent = stateData.lossHistory || 'N/A';
+            } else {
+                libDeviceEl.textContent = 'N/A'; libRnnTypeEl.textContent = 'N/A'; libLayersEl.textContent = 'N/A'; libHiddenEl.textContent = 'N/A'; libInputVecEl.textContent = 'N/A'; libTrackedBotsEl.textContent = 'N/A'; libAvgLossEl.textContent = 'N/A'; libLossHistoryEl.textContent = 'N/A';
+            }
+        }
+        function handleParamChange(event) {
+             const inputEl = event.target; const paramKey = inputEl.id.replace('param-', ''); let value = inputEl.value;
+             if (inputEl.readOnly) return; // Ignore changes to readonly fields
+
+             if (paramKey === 'LEARNING_BOT_BASE_EXPLORATION_RATE' || paramKey === 'LEARNING_BOT_RULE_EXPLORE_PERCENT') { value = parseFloat(value) / 100.0; if (isNaN(value)) value = 0; }
+             else if (inputEl.type === 'number') { value = parseFloat(value); if (isNaN(value)) return; }
+
+             console.log(`Param changed: ${paramKey} = ${value} (Type: ${typeof value})`);
+             sendMessage("updateParam", { key: paramKey, value: value });
+             checkResetHints(); // Check hints immediately after sending change
+        }
+        function checkResetHints() {
+             if (!paramInputs || Object.keys(currentServerConfig).length === 0) return;
+             // Define keys requiring reset based on typical impact
+             const fullResetKeys = new Set([ "GRID_SIZE", "NUM_HC_BOTS", "NUM_LEARNING_BOTS", "NUM_GOALS", "VISIBILITY_RANGE", "NUM_ACTIONS", "LIB_DEVICE", "LIB_RNN_TYPE", "LIB_HIDDEN_SIZE", "LIB_NUM_LAYERS", "LIB_DROPOUT", "LIB_LEARNING_RATE", "LIB_LOSS_TYPE", "LIB_INPUT_VECTOR_SIZE" ]);
+             const roundResetKeys = new Set([ "MAX_STEPS_PER_ROUND" ]);
+
+             document.querySelectorAll('.param-group').forEach(group => {
+                 const needsFull = group.classList.contains('needs-reset-all');
+                 const needsRound = group.classList.contains('needs-new-round');
+
+                 group.querySelectorAll('.param-item').forEach(div => {
+                    const inputEl = div.querySelector('input, select'); if (!inputEl) return;
+                    const paramKey = inputEl.id.replace('param-', ''); const hintEl = div.querySelector('.reset-needed-hint'); if (!inputEl || !hintEl || inputEl.readOnly) return;
+
+                    let uiValue = inputEl.value; let serverValue = currentServerConfig[paramKey]; let showHint = false; let hintText = '';
+
+                    if (serverValue !== undefined) {
+                         let comparableUiValue; let comparableServerValue = serverValue;
+                         // Convert UI value to comparable type based on expected type
+                         if (inputEl.type === 'number') {
+                             if (paramKey === 'LEARNING_BOT_BASE_EXPLORATION_RATE' || paramKey === 'LEARNING_BOT_RULE_EXPLORE_PERCENT') { comparableUiValue = parseFloat(uiValue) / 100.0; }
+                             else { comparableUiValue = parseFloat(uiValue); }
+                             // Use tolerance for float comparison
+                             if (typeof comparableServerValue === 'number' && !Number.isInteger(comparableServerValue)) {
+                                 comparableServerValue = parseFloat(comparableServerValue.toFixed(6)); // Adjust precision as needed
+                                 comparableUiValue = parseFloat(comparableUiValue.toFixed(6));
+                             }
+                         } else if (inputEl.tagName === 'SELECT') { comparableUiValue = uiValue;
+                         } else { comparableUiValue = uiValue; } // String comparison for others
+
+                         // Use string comparison for simplicity after potential type conversion/formatting
+                         if (String(comparableUiValue) !== String(comparableServerValue)) {
+                              if (needsFull) { showHint = true; hintText = '(Reset Req.)'; }
+                              else if (needsRound) { showHint = true; hintText = '(New Round Req.)'; }
+                         }
+                    }
+                    hintEl.style.display = showHint ? 'inline' : 'none'; if (showHint) hintEl.textContent = hintText;
+                 });
+             });
+         }
+
+        // ================================================================
+        // --- Initial Setup ---
+        // ================================================================
+        window.onload = () => {
+            console.log("Window loaded. Initializing Client/Server GPU Learning Demo v6.0...");
+            // Assign DOM elements
+            statusEl=document.getElementById('status'); roundInfoEl=document.getElementById('round-info'); hcTotalGoalsEl=document.getElementById('hc-total-goals'); learningTotalGoalsEl=document.getElementById('learning-total-goals'); learningAvgLossEl=document.getElementById('learning-avg-loss');
+            hcCountEl=document.getElementById('hc-count'); hcActiveEl=document.getElementById('hc-active'); hcFrozenEl=document.getElementById('hc-frozen'); hcGoalsRoundEl=document.getElementById('hc-goals-round'); learningCountEl=document.getElementById('learning-count'); learningActiveEl=document.getElementById('learning-active'); learningFrozenEl=document.getElementById('learning-frozen'); learningGoalsRoundEl=document.getElementById('learning-goals-round'); learningModeExampleEl=document.getElementById('learning-mode-example'); learningLastLossExampleEl=document.getElementById('learning-last-loss-example');
+            gridContainerEl=document.querySelector('.grid-container'); startButton=document.getElementById('startButton'); stopButton=document.getElementById('stopButton'); resetRoundButton=document.getElementById('resetRoundButton'); resetFullButton=document.getElementById('resetFullButton');
+            // Library State UI Elements
+            libDeviceEl=document.getElementById('lib-device'); libRnnTypeEl=document.getElementById('lib-rnn-type'); libLayersEl=document.getElementById('lib-layers'); libHiddenEl=document.getElementById('lib-hidden'); libAvgLossEl=document.getElementById('lib-avg-loss'); libLossHistoryEl=document.getElementById('lib-loss-history');
+            libInputVecEl=document.getElementById('lib-input-vec'); libTrackedBotsEl=document.getElementById('lib-tracked-bots'); // Assign new elements
+            libRnnInfoEl=document.getElementById('lib-rnn-info'); libDeviceInfoEl=document.getElementById('lib-device-info'); // Assign header elements
+
+            // Store references to all parameter inputs
+            document.querySelectorAll('.parameters input[type=number], .parameters input[type=text], .parameters select').forEach(input => {
+                const paramKey = input.id.replace('param-', ''); paramInputs[paramKey] = input;
+                 if (!input.readOnly) { // Don't add listeners to readonly inputs
+                    input.addEventListener('change', handleParamChange); input.addEventListener('input', checkResetHints);
+                 }
+            });
+
+            // Basic check for essential elements
+            if (!statusEl || !gridContainerEl || !startButton || !libDeviceEl || Object.keys(paramInputs).length < 15) { console.error("CRITICAL: Failed to find essential UI elements!"); document.body.innerHTML = "<h1>Error: Page Initialization Failed! Check Console.</h1>"; return; }
+
+            // Initialize Visualizer
+            try { visualizer = new Visualizer('gridCanvas'); const cw = gridContainerEl ? gridContainerEl.offsetWidth : 600; visualizer.updateGridDimensions(35, cw); /* Default size */ }
+            catch (error) { console.error("Failed to create Visualizer:", error); setStatus("Error: Vis init failed!", true); return; }
+
+            // Add Button Listeners
+            startButton.addEventListener('click', () => sendMessage('start')); stopButton.addEventListener('click', () => sendMessage('stop')); resetRoundButton.addEventListener('click', () => sendMessage('resetRound')); resetFullButton.addEventListener('click', () => sendMessage('resetAll')); document.getElementById('saveParamsButton').addEventListener('click', () => sendMessage('saveParams')); document.getElementById('loadParamsButton').addEventListener('click', () => sendMessage('loadParams')); document.getElementById('resetParamsButton').addEventListener('click', () => sendMessage('resetParams'));
+
+            // Resize Listener
+             let resizeTimeout; window.addEventListener('resize', () => { clearTimeout(resizeTimeout); resizeTimeout = setTimeout(() => { if (visualizer && currentEnvState && currentEnvState.size) { try { const cw = gridContainerEl ? gridContainerEl.offsetWidth : 600; visualizer.updateGridDimensions(currentEnvState.size, cw); visualizer.update(currentBots); } catch(e){ console.error("Error during resize handling:", e); } } }, 150); });
+
+            disableAllControls(); // Disable controls initially
+            connectWebSocket(); // Start connection
+        };
+    </script>
+</body>
+</html>
+

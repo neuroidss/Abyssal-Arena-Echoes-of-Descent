@@ -1,0 +1,6 @@
+fastapi
+uvicorn[standard]
+torch # Or torch+cuda appropriate for your system
+numpy # Often implicitly needed by torch/data handling
+websockets # Implicitly by uvicorn[standard] but good to list
+
