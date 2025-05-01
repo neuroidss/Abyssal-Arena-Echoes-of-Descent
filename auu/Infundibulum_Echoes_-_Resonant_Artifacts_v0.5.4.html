@@ -42,13 +42,13 @@
         const VERSION = "0.5.4"; // <<< CHANGE: Version incremented
         const USE_DEBUG = true;
         const TARGET_FPS = 55; // Target FPS for dynamic complexity adjustment
-        const HIGH_PERFORMANCE_MODE = true;//hasRTX3060LevelGPU(); // Check for higher-end GPU
-        const STATE_VECTOR_SIZE = 128; // Size of the core resonant state vector
+        const HIGH_PERFORMANCE_MODE = hasRTX3060LevelGPU(); // Check for higher-end GPU
+        const STATE_VECTOR_SIZE = HIGH_PERFORMANCE_MODE ? 128 : 64; // Size of the core resonant state vector
         const INPUT_VECTOR_SIZE = 128; // Size of the unified intent vector from InputProcessor
         const EMBEDDING_DIM = 384; // Dimension of embeddings from Xenova/all-MiniLM-L6-v2
         const MAX_ARTIFACTS = 18; // Max number of artifacts stored in memory
         const MAX_ACTIVE_ARTIFACTS_LOGIC = 5; // Max artifacts considered by CoreLogic NN per frame
-        const MAX_ARTIFACTS_SHADER = HIGH_PERFORMANCE_MODE ? 5 : 2; // Max artifact states passed directly to the fragment shader
+        const MAX_ARTIFACTS_SHADER = HIGH_PERFORMANCE_MODE ? 5 : 1; // Max artifact states passed directly to the fragment shader
         const ARTIFACT_SIMILARITY_THRESHOLD = 0.47; // Minimum similarity for an artifact to be considered relevant by RAG
         const ARTIFACT_CREATION_INTERVAL_MS = 9000; // Minimum time between potential artifact creations
         const ARTIFACT_CREATION_ACTIVITY_THRESHOLD_MIN = 0.28; // Minimum combined 'activity' level to potentially create an artifact
@@ -1442,7 +1442,7 @@
             audioController = new AudioController();
 
             // 3. TensorFlow Setup (Essential)
-            try { await tf.ready(); const targetBackend = HIGH_PERFORMANCE_MODE ? 'webgl' : 'cpu'; console.log(`Attempting TF Backend: ${targetBackend}`); await tf.setBackend(targetBackend).catch(async (be) => { console.warn(`Failed setting ${targetBackend}, trying default webgl...`, be); await tf.setBackend('webgl'); }); const currentBackend = tf.getBackend(); console.log(`TF Ready. Using Backend: ${currentBackend}`); if (currentBackend === 'webgl') { tf.env().set('WEBGL_CONV_IM2COL', false); tf.env().set('WEBGL_PACK', false); /*tf.env().set('WEBGL_FLUSH_THRESHOLD', -1);*/ } console.log("TF configured."); } catch (err) { showError("Fatal: TF.js Backend Init Failed."); console.error("TF setup fail:", err); return; }
+            try { await tf.ready(); const targetBackend = HIGH_PERFORMANCE_MODE ? 'webgl' : 'webgl'; console.log(`Attempting TF Backend: ${targetBackend}`); await tf.setBackend(targetBackend).catch(async (be) => { console.warn(`Failed setting ${targetBackend}, trying default webgl...`, be); await tf.setBackend('webgl'); }); const currentBackend = tf.getBackend(); console.log(`TF Ready. Using Backend: ${currentBackend}`); if (currentBackend === 'webgl') { tf.env().set('WEBGL_CONV_IM2COL', false); tf.env().set('WEBGL_PACK', false); /*tf.env().set('WEBGL_FLUSH_THRESHOLD', -1);*/ } console.log("TF configured."); } catch (err) { showError("Fatal: TF.js Backend Init Failed."); console.error("TF setup fail:", err); return; }
 
             // 4. Instantiate Logic Components
             inputProcessorModel = new PlaceholderInputProcessor(null, INPUT_VECTOR_SIZE);
