@@ -1,0 +1,1934 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <!-- <<< CHANGE: Version incremented -->
+    <title>Infundibulum Echoes - Resonant Artifacts v0.5.9</title>
+    <style>
+        html, body { margin: 0; padding: 0; overflow: hidden; height: 100%; width: 100%; background-color: #000; color: #fff; font-family: sans-serif; cursor: none; -webkit-tap-highlight-color: transparent; touch-action: none; }
+        canvas { display: block; width: 100%; height: 100%; }
+        #debugInfo { position: absolute; top: 5px; left: 5px; color: rgba(200,200,200,0.7); font-family: monospace; font-size: 8px; line-height: 1.2; background-color: rgba(0,0,0,0.5); padding: 3px 5px; border-radius: 3px; display: none; z-index: 10; pointer-events: none; max-width: calc(100% - 10px); }
+        #warningInfo { position: absolute; bottom: 10px; left: 10px; color: yellow; font-family: sans-serif; font-size: 12px; background-color: rgba(0,0,0,0.6); padding: 8px; border-radius: 5px; display: block; z-index: 10; pointer-events: none; }
+        #loadingInfo { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #eee; font-size: 14px; background-color: rgba(0,0,0,0.7); padding: 15px; border-radius: 8px; display: none; z-index: 10; text-align: center; pointer-events: none; }
+        #resetButton { position: absolute; bottom: -999px; left: -999px; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+        #speechStatus { position: absolute; top: 10px; right: 10px; color: rgba(180, 180, 255, 0.6); font-family: monospace; font-size: 9px; background-color: rgba(0,0,50,0.4); padding: 2px 4px; border-radius: 3px; display: none; z-index: 10; pointer-events: none; }
+    </style>
+</head>
+<body>
+    <canvas id="renderCanvas"></canvas>
+    <div id="debugInfo">Debug Info Placeholder</div>
+    <div id="warningInfo">Interact to initialize. Long Press + Tap to Reset. Say "Reset Echoes" for voice command.</div>
+    <div id="loadingInfo">Loading Assets...<br><span id="loadingProgress"></span></div>
+    <div id="speechStatus">Speech: Idle</div>
+    <button id="resetButton">Reset</button> <!-- Triggered programmatically -->
+
+    <!-- External Libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js" type="module"></script>
+    <!-- Transformers.js imported dynamically -->
+
+    <!-- Main Game Logic -->
+    <script type="module">
+
+        // Import Three.js
+        import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js';
+
+        // --- Constants & Configuration ---
+        const VERSION = "0.5.9"; // <<< CHANGE: Version incremented
+        const USE_DEBUG = true;
+        const TARGET_FPS = 55;
+        const HIGH_PERFORMANCE_MODE = hasRTX3060LevelGPU();
+        const STATE_VECTOR_SIZE = 64;
+        const INPUT_VECTOR_SIZE = 64;
+        const EMBEDDING_DIM = 384;
+        const MAX_ARTIFACTS = 16;
+        const MAX_ACTIVE_ARTIFACTS_LOGIC = 4;
+        let MAX_ARTIFACTS_SHADER = HIGH_PERFORMANCE_MODE ? 3 : 1; // Recalculated later
+        const ARTIFACT_SIMILARITY_THRESHOLD = 0.47;
+        const ARTIFACT_CREATION_INTERVAL_MS = 9500;
+        const ARTIFACT_CREATION_ACTIVITY_THRESHOLD_MIN = 0.28;
+        const ARTIFACT_CREATION_ACTIVITY_THRESHOLD_MAX = 0.75;
+        const EMBEDDING_MODEL_NAME = 'Xenova/all-MiniLM-L6-v2';
+        const MIC_FFT_SIZE = 256;
+        const ACCEL_FFT_SIZE = 64;
+        const LOCAL_STORAGE_KEY = `infundibulumEchoesState_v${VERSION}`;
+        const SPEECH_COMMANDS = { CREATE: ["create artifact", "make echo", "capture this", "remember this"], FORGET_OLDEST: ["forget oldest", "remove last echo", "clear history", "forget last"], RESET: ["reset echoes", "start over", "clear all", "forget everything"], };
+        const SYNC_THRESHOLD = 0.3; // Threshold for "high sync" artifact creation message
+        const SYNC_DECAY = 0.98;
+        const ACCEL_ANALYSIS_INTERVAL_S = ACCEL_FFT_SIZE / (TARGET_FPS * 0.9);
+        const LONG_PRESS_DURATION_MS = 2000;
+        const RESET_SECOND_TAP_WINDOW_MS = 400;
+
+        // --- Global State ---
+        let renderer, scene, camera, audioContext, masterGain, analyserNode;
+        let inputProcessorModel, coreLogicModel;
+        let graphicsController, audioController, artifactManager, embeddingProvider, featureExtractor, speechController;
+        let interactionOccurred = false;
+        let embeddingsReady = false;
+        let lastArtifactCreationTime = 0;
+        let complexityLevel = HIGH_PERFORMANCE_MODE ? 0.7 : 0.4;
+        let lastFpsTime = 0; let frameCount = 0; let currentFPS = TARGET_FPS;
+        let currentInputState = {
+            touch: { x: 0.5, y: 0.5, active: false, pressure: 0, dx: 0, dy: 0, lastX: 0.5, lastY: 0.5 },
+            motion: { alpha: 0, beta: 0, gamma: 0, available: false },
+            mic: { level: 0, fft: new Float32Array(MIC_FFT_SIZE / 2).fill(-140), available: false, rhythmPeak: 0, rhythmTempo: 0 },
+            accelerometer: { x: 0, y: 0, z: 0, magnitude: 0, available: false, history: new Array(ACCEL_FFT_SIZE).fill(0), rhythmPeak: 0, rhythmTempo: 0 },
+            syncFactor: 0.0
+        };
+        let unifiedIntentVector = tf.keep(tf.zeros([1, INPUT_VECTOR_SIZE]));
+        let currentResonantState = tf.keep(tf.fill([1, STATE_VECTOR_SIZE], 0.5));
+        let activeArtifactInfo = { ids: [], stateArrays: [], similarities: [] };
+        let resetGestureState = { pointerDownTime: 0, longPressDetected: false, longPressReleaseTime: 0, resetTimeout: null };
+        let lastAccelTime = 0;
+        let visualFeedback = { active: false, intensity: 0, startTime: 0, duration: 0.1 };
+        let memoryInfo = { numBytes: 0, numTensors: 0 };
+
+        // --- Rhythm Analysis Helper ---
+        function analyzeRhythm(data, sampleRateOrFreq, dataSize) {
+            let peakFreqBin = -1; let peakMag = -Infinity; let totalEnergy = 0;
+            const freqResolution = (sampleRateOrFreq / 2) / (dataSize / 2);
+            for (let i = 0; i < data.length; i++) {
+                const magnitude = data[i];
+                const linearMag = isFinite(magnitude) ? (magnitude > -100 ? Math.pow(10, magnitude / 20) : 0) : 0;
+                totalEnergy += linearMag * linearMag;
+                const freq = i * freqResolution;
+                // Focus on typical rhythm frequencies (60-600 BPM -> 1-10 Hz)
+                if (magnitude > peakMag && freq >= 1.0 && freq <= 10.0) { peakMag = magnitude; peakFreqBin = i; }
+            }
+            const peakFrequency = peakFreqBin * freqResolution;
+            let normalizedPeak;
+            // Normalize based on type (dB for Mic, raw magnitude for Accel)
+            if (sampleRateOrFreq > 1000) { // Assume Mic (dB)
+                normalizedPeak = clamp((peakMag + 80.0) / 80.0, 0, 1); // Normalize dB from -80 to 0 range
+            } else { // Assume Accel (magnitude)
+                const rmsEnergy = data.length > 0 ? Math.sqrt(totalEnergy / data.length) : 0;
+                normalizedPeak = clamp(rmsEnergy / 5.0, 0, 1); // Normalize RMS magnitude (adjust divisor empirically)
+            }
+            const estimatedTempo = clamp(peakFrequency * 60, 60, 200); // Estimate BPM
+            if (peakFreqBin === -1) { // No clear peak found
+                return { peak: normalizedPeak, tempo: 120 }; // Return normalized energy, default tempo
+            }
+            return { peak: normalizedPeak, tempo: estimatedTempo };
+        }
+
+        // --- Feature Extractor ---
+         class FeatureExtractor {
+             constructor(stateVectorSize) {
+                 this.stateVectorSize = stateVectorSize; // Now 64
+                 this.indices = { // Remapped / simplified indices for tag extraction
+                     kick: 0, bassCut: 2, bassRes: 3, hue: 5, flow: 6, warp: 7, complexity: 8, tempo: 9, reverb: 10, leadDecay: 11, masterVol: 15, leadPresence: 16, noiseLevel: 12
+                 };
+             }
+             _getCategory(v, thresholds, labels) { for (let i = 0; i < thresholds.length; i++) { if (v < thresholds[i]) return labels[i]; } return labels[labels.length - 1]; }
+             extractTags(arr) {
+                 if (!arr || arr.length !== this.stateVectorSize) return "";
+                 const tags = new Set(); const i = this.indices;
+                 const getVal = (idx, def) => (idx !== undefined && arr[idx] !== undefined) ? arr[idx] : def;
+
+                 const tempo = getVal(i.tempo, 0.5); tags.add(this._getCategory(tempo, [0.3, 0.7], ["slow", "mid", "fast"]));
+                 if (getVal(i.kick, 0.5) > 0.75) tags.add("drive");
+                 const bc = getVal(i.bassCut, 0.5); const br = getVal(i.bassRes, 0.5);
+                 if (bc < 0.3 && br > 0.6) tags.add("dark_bass"); else if (bc > 0.5 && br > 0.7) tags.add("acid"); else if (bc > 0.4) tags.add("bright_bass");
+                 if (getVal(4, 0.0) > 0.6) tags.add("resonant"); // Index 4 -> resonance/saturation in shader
+                 if (getVal(i.leadPresence, 0.5) > 0.6) {
+                     const leadDecay = getVal(i.leadDecay, 0.1); if (leadDecay < 0.15) tags.add("plucky_lead"); else tags.add("long_lead");
+                 }
+                 if (getVal(i.noiseLevel, 0.1) > 0.3) tags.add("noisy");
+                 const comp = getVal(i.complexity, 0.5); tags.add(this._getCategory(comp, [0.4, 0.8], ["simple", "mid", "complex"]));
+                 const hue = getVal(i.hue, 0.5); tags.add(this._getCategory(hue, [0.15, 0.3, 0.45, 0.6, 0.75, 0.9], ["red", "orange", "yellow", "green", "blue", "purple", "red"]));
+                 if (getVal(i.flow, 0.0) > 0.7) tags.add("flow"); if (getVal(i.warp, 0.0) > 0.6) tags.add("warp"); if (getVal(i.reverb, 0.0) > 0.5) tags.add("reverb");
+                 const vol = getVal(i.masterVol, 0.6); if (vol < 0.3) tags.add("quiet"); else if (vol > 0.8) tags.add("loud");
+
+                 return Array.from(tags).join(' ');
+             }
+         }
+
+        // --- Embedding Provider ---
+        class EmbeddingProvider {
+            constructor(modelName) { this.modelName = modelName; this.pipeline = null; this.isInitializing = false; this.loadingDiv = document.getElementById('loadingInfo'); this.loadingProgress = document.getElementById('loadingProgress'); }
+            async init() { if (this.pipeline || this.isInitializing) return; this.isInitializing = true; showLoading(true, `Loading Embedding: ${this.modelName}...`); console.log(`Loading model: ${this.modelName}...`); try { const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.1'); env.allowLocalModels = false; env.allowRemoteModels = true; env.backends.onnx.wasm.numThreads = 1; env.backends.onnx.wasm.simd = true; console.log("Transformer env configured."); this.pipeline = await pipeline('feature-extraction', this.modelName, { quantized: true, progress_callback: (p) => { if (this.loadingProgress) { let s=p.status; if(p.file) s+=`: ${p.file}`; if(p.loaded&&p.total){s+=` (${((p.loaded/p.total)*100).toFixed(1)}%)`;} this.loadingProgress.textContent=s; } } }); console.log("Embedding pipeline loaded."); embeddingsReady = true; showLoading(false); showWarning("System Ready. Interact or Speak. Say 'Reset Echoes' to reset.", 6000); } catch (e) { console.error("FATAL: Embedding model failed:", e); showError("Embedding Model Failed! Artifacts disabled."); embeddingsReady = false; showLoading(false); artifactManager = null; if (e.message && e.message.includes("CacheStorage")) { console.warn("Note: CacheStorage error detected during embedding model load. This is often a browser issue and may resolve itself. Functionality might be okay unless model loading fully failed."); showWarning("Warning: Browser cache issue detected (Embeddings).", 7000); } } finally { this.isInitializing = false; } }
+            async embed(text) { if (!this.pipeline || !embeddingsReady) return null; if (!text || typeof text !== 'string' || text.trim().length === 0) { console.warn("Embed skip: Invalid text."); return null; } try { const r = await this.pipeline(text, { pooling: 'mean', normalize: true }); if (r && r.data && r.data.length === EMBEDDING_DIM) return r.data; else { console.warn("Embed failed/bad shape:", text); return null; } } catch (e) { console.error("Embedding error:", e); return null; } }
+         }
+
+        // --- Artifact Manager ---
+        class ArtifactManager {
+             constructor(maxArtifacts, stateVectorSize, embeddingDim, featureExtractor, embeddingProvider) { this.maxArtifacts=maxArtifacts; this.stateVectorSize=stateVectorSize; this.embeddingDim=embeddingDim; this.featureExtractor=featureExtractor; this.embeddingProvider=embeddingProvider; this.artifacts=[]; this.nextId=0; }
+             async createArtifact(stateVectorTensor) { if (!embeddingsReady || !this.featureExtractor || !this.embeddingProvider) return false; if (!stateVectorTensor || stateVectorTensor.isDisposed) { console.warn("Artifact create skip: Invalid tensor."); return false; } const stateArr = await stateVectorTensor.data(); const tags = this.featureExtractor.extractTags(stateArr); if (!tags) return false; const emb = await this.embeddingProvider.embed(tags); if (!emb || emb.length !== this.embeddingDim) return false; const newArt = { id: this.nextId++, stateVector: Array.from(stateArr), featureTags: tags, embedding: emb, timestamp: Date.now() }; this.artifacts.push(newArt); console.log(`Artifact ${newArt.id} created: "${tags.substring(0,50)}..."`); triggerVisualFeedback(0.6); if (this.artifacts.length > this.maxArtifacts) { this.artifacts.sort((a,b) => a.timestamp - b.timestamp); const removed = this.artifacts.shift(); console.log(`Pruned oldest artifact ${removed.id}. Count: ${this.artifacts.length}`); } saveStateToLocalStorage(); return true; }
+             _cosineSimilarity(a,b) { if (!a||!b||a.length !== b.length||a.length===0) return 0; let dot=0, nA=0, nB=0; for (let i=0; i<a.length; i++) { dot+=a[i]*b[i]; nA+=a[i]*a[i]; nB+=b[i]*b[i]; } if (nA===0||nB===0) return 0; return dot / ((Math.sqrt(nA)*Math.sqrt(nB))+1e-9); }
+             async findRelevantArtifacts(stateTensor, thresh, maxCnt) {
+                 const result = { ids:[], stateArrays:[], similarities:[] };
+                 if (!embeddingsReady || this.artifacts.length===0 || !stateTensor || stateTensor.isDisposed) return result;
+                 const stateArr = await stateTensor.data();
+                 const tags = this.featureExtractor.extractTags(stateArr); if (!tags) return result;
+                 const queryEmb = await this.embeddingProvider.embed(tags); if (!queryEmb) return result;
+                 const candidates = this.artifacts.map(art => ({ art: art, similarity: this._cosineSimilarity(queryEmb, art.embedding) }));
+                 const relevant = candidates.filter(c => c.similarity >= thresh).sort((a,b) => b.similarity - a.similarity);
+                 const selected = relevant.slice(0, maxCnt);
+                 selected.forEach(item => { result.ids.push(item.art.id); result.stateArrays.push(item.art.stateVector); result.similarities.push(item.similarity); });
+                 return result;
+             }
+             getArtifactCount() { return this.artifacts.length; }
+             setArtifacts(loaded) { this.artifacts = loaded; this.nextId = loaded.reduce((maxId, art) => Math.max(maxId, art.id), -1) + 1; console.log(`Loaded ${this.artifacts.length} artifacts. Next ID: ${this.nextId}`); }
+             forgetOldestArtifact() { if (this.artifacts.length > 0) { this.artifacts.sort((a, b) => a.timestamp - b.timestamp); const removed = this.artifacts.shift(); console.log(`Forgot oldest artifact ${removed.id} via command.`); triggerVisualFeedback(0.3, 0.2); saveStateToLocalStorage(); return true; } console.log("No artifacts to forget."); return false; }
+         }
+
+        // --- Speech Recognition Controller ---
+        class SpeechRecognitionController {
+            constructor() { this.recognition = null; this.isSupported = ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window); this.isListening = false; this.isActive = false; this.isStarting = false; this.isStopping = false; this.permissionGranted = false; this.statusDiv = document.getElementById('speechStatus'); this.commandCallback = null; this.consecutiveErrorCount = 0; this.MAX_CONSECUTIVE_ERRORS = 8; this.restartTimeoutId = null; if (!this.isSupported) { console.warn("Speech Recognition API not supported."); this.updateStatus("Unsupported"); } }
+            updateStatus(status) { if (this.statusDiv) { this.statusDiv.textContent = `Speech: ${status}`; this.statusDiv.style.display = 'block'; } return status; }
+            async requestPermissionAndInit() { if (!this.isSupported || this.recognition) return; try { await navigator.mediaDevices.getUserMedia({ audio: true }); this.permissionGranted = true; console.log("Audio permission likely granted for Speech Rec."); this.initializeRecognition(); } catch (err) { console.error("Mic permission denied or failed for Speech Rec:", err.name, err.message); this.updateStatus("Perm Denied"); if (interactionOccurred) showWarning("Voice commands disabled: Mic permission needed.", 5000); this.permissionGranted = false; } }
+            initializeRecognition() { if (!this.isSupported || !this.permissionGranted || this.recognition) return; const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition; this.recognition = new SpeechRecognition(); this.recognition.continuous = true; this.recognition.interimResults = false; this.recognition.lang = 'en-US'; this.recognition.maxAlternatives = 1; this.recognition.onstart = () => { console.log("Speech recognition actually started."); this.isActive = true; this.isStarting = false; this.updateStatus("Listening"); }; this.recognition.onend = () => { console.log("Speech recognition ended."); this.isActive = false; this.isStarting = false; this.isStopping = false; if (this.isListening) { console.log("...restarting listening after short delay."); this.scheduleRestart(150 + Math.random() * 100); } else { this.updateStatus("Idle"); } }; this.recognition.onresult = (event) => { this.consecutiveErrorCount = 0; const last = event.results.length - 1; const transcript = event.results[last][0].transcript.trim().toLowerCase(); console.log(`Speech Result: "${transcript}"`); this.handleCommand(transcript); }; this.recognition.onerror = (event) => { console.error('Speech Recognition Error:', event.error); const error = event.error; this.isActive = false; this.isStarting = false; this.isStopping = false; let autoRestart = true; if (error === 'no-speech') { this.updateStatus("Quiet"); this.consecutiveErrorCount++; } else if (error === 'audio-capture') { this.updateStatus("Mic Problem"); this.consecutiveErrorCount++; } else if (error === 'network') { this.updateStatus("Network Issue"); this.consecutiveErrorCount++; } else if (error === 'not-allowed' || error === 'service-not-allowed') { this.updateStatus("Blocked/Disabled"); this.permissionGranted = false; this.isListening = false; autoRestart = false; showError(`Voice commands ${error}! Check permissions.`); } else { this.updateStatus(`Error (${error})`); this.consecutiveErrorCount++; } if (this.consecutiveErrorCount > this.MAX_CONSECUTIVE_ERRORS) { console.error("Too many consecutive speech errors, stopping attempts."); this.updateStatus("Stopped (Errors)"); this.isListening = false; autoRestart = false; showWarning("Speech recognition stopped due to repeated errors.", 6000); } if (this.isListening && autoRestart) { this.scheduleRestart(750 + Math.random() * 500); } }; console.log("Speech Recognition initialized."); this.updateStatus("Initialized"); }
+            setCommandCallback(callback) { this.commandCallback = callback; }
+            scheduleRestart(delay) { if (this.restartTimeoutId) clearTimeout(this.restartTimeoutId); this.restartTimeoutId = setTimeout(() => { this.restartTimeoutId = null; console.log("Executing scheduled speech restart."); this.startListening(); }, delay); }
+            startListening() { if (!this.isSupported || this.isActive || this.isStarting || this.isStopping) return; if (!this.permissionGranted) { console.log("Speech start deferred: Requesting permission first."); this.requestPermissionAndInit().then(() => { if (this.permissionGranted) { this.startListening(); } }); return; } if (!this.recognition) { console.warn("Speech start failed: Recognition not initialized."); return; } console.log("Attempting to start speech recognition..."); this.isListening = true; this.isStarting = true; this.updateStatus("Starting..."); try { if (this.restartTimeoutId) { clearTimeout(this.restartTimeoutId); this.restartTimeoutId = null; } this.recognition.start(); } catch (e) { console.error("Error executing recognition.start():", e); this.isListening = false; this.isStarting = false; this.isActive = false; this.updateStatus("Start Failed"); if (e.name === 'InvalidStateError') { console.warn("InvalidStateError caught, likely rapid start/stop. Waiting for onend."); } else { this.scheduleRestart(1000 + Math.random() * 500); } } }
+            stopListening() { console.log("Attempting to stop speech recognition..."); this.isListening = false; if (this.restartTimeoutId) { clearTimeout(this.restartTimeoutId); this.restartTimeoutId = null; } if (!this.recognition || (!this.isActive && !this.isStarting) || this.isStopping) { if (!this.isActive && !this.isStarting) this.updateStatus("Idle"); return; } this.isStopping = true; this.updateStatus("Stopping"); try { this.recognition.stop(); } catch(e) { console.error("Error executing recognition.stop():", e); this.isStopping = false; this.isActive = false; this.updateStatus("Stop Failed"); } }
+            handleCommand(transcript) { let matchedCommand = null; const cleanTranscript = transcript.trim(); if (cleanTranscript.length === 0) return; for (const commandType in SPEECH_COMMANDS) { if (SPEECH_COMMANDS[commandType].some(phrase => cleanTranscript.includes(phrase))) { matchedCommand = commandType; console.log(`Matched Command: ${matchedCommand} from "${cleanTranscript}"`); break; } } if (matchedCommand && this.commandCallback) { this.commandCallback(matchedCommand); triggerVisualFeedback(0.2, 0.1); } else { console.log(`Unrecognized command: "${cleanTranscript}"`); } }
+        }
+
+        // --- NN Model Placeholders ---
+        class PlaceholderInputProcessor {
+             constructor(inputDim, outputDim) { this.inputDim = inputDim; this.outputDim = outputDim; }
+             process(inputData) {
+                 // Creates a [1, INPUT_VECTOR_SIZE] tensor based on current sensor inputs
+                 return tf.tidy(() => {
+                     const vec = new Array(INPUT_VECTOR_SIZE).fill(0);
+                     const touchFactor = inputData.touch.active ? (inputData.touch.pressure || 1.0) : 0;
+                     const micLevel = inputData.mic.available ? inputData.mic.level : 0;
+                     const motionAvailable = inputData.motion.available;
+                     const alphaNorm = motionAvailable ? (inputData.motion.alpha / 360.0) % 1.0 : 0.5;
+                     const betaNorm = motionAvailable ? clamp((inputData.motion.beta + 180.0) / 360.0, 0, 1) : 0.5;
+                     const gammaNorm = motionAvailable ? clamp((inputData.motion.gamma + 90.0) / 180.0, 0, 1) : 0.5;
+                     const touchVelMag = clamp(Math.sqrt(inputData.touch.dx**2 + inputData.touch.dy**2) * 25, 0, 1);
+                     const accelAvailable = inputData.accelerometer.available;
+                     const accelNormX = accelAvailable ? clamp((inputData.accelerometer.x + 20) / 40, 0, 1) : 0.5;
+                     const accelNormY = accelAvailable ? clamp((inputData.accelerometer.y + 20) / 40, 0, 1) : 0.5;
+                     const accelNormZ = accelAvailable ? clamp((inputData.accelerometer.z + 20) / 40, 0, 1) : 0.5;
+                     const accelMagNorm = accelAvailable ? clamp(inputData.accelerometer.magnitude / 25, 0, 1) : 0;
+                     const micRhythmPeak = inputData.mic.available ? inputData.mic.rhythmPeak : 0;
+                     const micRhythmTempoNorm = inputData.mic.available ? clamp((inputData.mic.rhythmTempo - 60) / (200 - 60), 0, 1) : 0.5;
+                     const accelRhythmPeak = accelAvailable ? inputData.accelerometer.rhythmPeak : 0;
+                     const accelRhythmTempoNorm = accelAvailable ? clamp((inputData.accelerometer.rhythmTempo - 60) / (200 - 60), 0, 1) : 0.5;
+
+                     // Map sensor data into the vector using modulo and specific assignments
+                     for (let i = 0; i < INPUT_VECTOR_SIZE; i++) {
+                          switch (i % 16) { /* Distribute core inputs cyclically */
+                             case 0: vec[i] = inputData.touch.x; break;
+                             case 1: vec[i] = inputData.touch.y; break;
+                             case 2: vec[i] = touchFactor; break;
+                             case 3: vec[i] = alphaNorm; break;
+                             case 4: vec[i] = betaNorm; break;
+                             case 5: vec[i] = gammaNorm; break;
+                             case 6: vec[i] = micLevel; break;
+                             case 7: vec[i] = touchVelMag; break;
+                             case 8: vec[i] = accelNormX; break;
+                             case 9: vec[i] = accelNormY; break;
+                             case 10: vec[i] = accelNormZ; break;
+                             case 11: vec[i] = accelMagNorm; break;
+                             case 12: vec[i] = micRhythmPeak; break; /* Inject rhythm features */
+                             case 13: vec[i] = micRhythmTempoNorm; break;
+                             case 14: vec[i] = accelRhythmPeak; break;
+                             case 15: vec[i] = accelRhythmTempoNorm; break;
+                          }
+                          /* Simple non-linear mixing (example, can be replaced by a learned layer) */
+                          const prevVal = vec[(i + INPUT_VECTOR_SIZE - 1) % INPUT_VECTOR_SIZE] !== undefined ? vec[(i + INPUT_VECTOR_SIZE - 1) % INPUT_VECTOR_SIZE] : 0;
+                          const otherVal = vec[(i + 5) % INPUT_VECTOR_SIZE] !== undefined ? vec[(i + 5) % INPUT_VECTOR_SIZE] : 0;
+                          vec[i] = fract(vec[i]*1.1 + prevVal*0.3 + Math.sin(otherVal * 5.1 + i*0.1) * 0.1);
+                          vec[i] = 1.0 / (1.0 + Math.exp(-(vec[i] * 2.0 - 1.0) * 1.8)); /* Sigmoid activation */
+                          vec[i] = clamp(vec[i] || 0, 0, 1); /* Ensure valid range */
+                     }
+
+                     /* Inject Mic FFT peaks into the vector (last few elements) */
+                     if (inputData.mic.available && inputData.mic.fft) {
+                         const fftData = inputData.mic.fft; const fftLen = fftData.length; const segments = 8;
+                         const binsPerSegment = Math.max(1, Math.floor(fftLen / segments));
+                         for(let seg = 0; seg < segments; seg++) {
+                             let peakDb = -140; const start = seg * binsPerSegment; const end = Math.min(start + binsPerSegment, fftLen);
+                             for(let k = start; k < end; k++) { if(isFinite(fftData[k])) peakDb = Math.max(peakDb, fftData[k]); }
+                             const normPeak = clamp((peakDb + 100) / 100, 0, 1); /* Normalize -100dB to 0dB range */
+                             const tIdxStart = INPUT_VECTOR_SIZE - 1 - seg * 2; /* Map to end of vector */
+                             if (tIdxStart >= 0) vec[tIdxStart] = (vec[tIdxStart] * 0.5 + normPeak * 0.5); /* Mix with existing value */
+                             if (tIdxStart - 1 >= 0) vec[tIdxStart - 1] = (vec[tIdxStart - 1] * 0.3 + normPeak * 0.7); /* Mix with neighbour */
+                         }
+                     }
+                     return tf.tensor1d(vec).expandDims(0); /* Shape: [1, INPUT_VECTOR_SIZE] */
+                 });
+             }
+         }
+
+        class PlaceholderCoreLogic {
+            constructor(stateSize) { this.stateSize = stateSize; } /* Now 64 */
+            predict(intentVectorTensor, currentStateTensor, activeArtifactStateArrays, activeArtifactSimilarities) {
+                /* Predicts next [1, STATE_VECTOR_SIZE] tensor based on intent, current state, and active artifacts */
+                return tf.tidy(() => {
+                    const decayFactor = 0.993; /* How fast the state naturally reverts to neutral (0.5) */
+                    const intentInfluence = 0.24; /* How strongly the user's intent pushes the state */
+                    const artifactInfluenceFactor = 0.16; /* Base influence of each active artifact */
+                    /* Complexity no longer injects noise here, it influences parameters in audio/visuals */
+
+                    /* --- Process Intent --- */
+                    let processedIntent = intentVectorTensor;
+                    /* Ensure intent vector matches state size (pad or truncate if needed) */
+                    if (intentVectorTensor.shape[1] !== this.stateSize) {
+                       console.warn(`Intent size ${intentVectorTensor.shape[1]} mismatch with state size ${this.stateSize}. Adapting.`);
+                       processedIntent = tf.tidy(() => {
+                           const currentIntent = intentVectorTensor.squeeze([0]); /* Remove batch dim */
+                           if (intentVectorTensor.shape[1] > this.stateSize) {
+                               return currentIntent.slice([0], [this.stateSize]).expandDims(0); /* Truncate */
+                           } else {
+                               const padding = this.stateSize - intentVectorTensor.shape[1];
+                               return currentIntent.pad([[0, padding]], 0.5).expandDims(0); /* Pad with neutral */
+                           }
+                       });
+                    }
+                    /* Calculate how the intent pushes the state away from neutral (0.5) */
+                    const intentInfluenceVec = processedIntent.sub(tf.scalar(0.5)).mul(tf.scalar(intentInfluence));
+
+                    /* --- Process Artifacts --- */
+                    let combinedArtifactInfluence = tf.zerosLike(currentStateTensor);
+                    if (activeArtifactStateArrays.length > 0) {
+                        /* Blend influence from active artifacts based on similarity */
+                        for(let i = 0; i < activeArtifactStateArrays.length; i++) {
+                            const stateArr = activeArtifactStateArrays[i]; const sim = activeArtifactSimilarities[i];
+                            if (!stateArr || stateArr.length !== this.stateSize) { console.warn(`Artifact ${i} has wrong size: ${stateArr?.length}, expected ${this.stateSize}`); continue; }
+                            const artVecTensor = tf.tensor1d(stateArr).expandDims(0);
+                            /* Calculate how the artifact state pushes away from neutral, scaled by similarity */
+                            const influence = artVecTensor.sub(tf.scalar(0.5)).mul(tf.scalar(sim * artifactInfluenceFactor));
+                            combinedArtifactInfluence = combinedArtifactInfluence.add(influence);
+                        }
+                        /* Slightly normalize total artifact influence if many are active */
+                        combinedArtifactInfluence = combinedArtifactInfluence.mul(tf.scalar(1.0 / (1.0 + activeArtifactStateArrays.length * 0.1)));
+                    }
+
+                    /* --- Internal Dynamics (Simplified Recurrence) --- */
+                    /* Simple spatial mixing/blurring within the state vector */
+                    const shiftedRight = currentStateTensor.slice([0, 1], [1, this.stateSize - 1]).pad([[0, 0], [1, 0]], 0.5);
+                    const shiftedLeft = currentStateTensor.slice([0, 0], [1, this.stateSize - 1]).pad([[0, 0], [0, 1]], 0.5);
+                    const crossTalk = shiftedLeft.sub(shiftedRight).mul(tf.scalar(0.035)); /* Difference influences neighbours */
+
+                    /* --- Combine Influences --- */
+                    let nextState = currentStateTensor
+                        .sub(tf.scalar(0.5)).mul(tf.scalar(decayFactor)).add(tf.scalar(0.5)) /* Apply decay towards neutral */
+                        .add(intentInfluenceVec) /* Add user intent influence */
+                        .add(combinedArtifactInfluence) /* Add artifact influence */
+                        .add(crossTalk); /* Add internal dynamics */
+
+                    /* Ensure state stays within valid bounds [0.01, 0.99] */
+                    nextState = nextState.clipByValue(0.01, 0.99);
+                    return nextState;
+                });
+            }
+        }
+
+        // --- Graphics Controller ---
+        class GraphicsController {
+            constructor(canvas) {
+                this.canvas = canvas;
+                scene = new THREE.Scene();
+                camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 100);
+                camera.position.z = 4;
+                try { renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: HIGH_PERFORMANCE_MODE, powerPreference: "high-performance" }); }
+                catch (e) { console.error("!!! Failed to create WebGLRenderer:", e); showError("WebGL Renderer Failed!"); throw e; }
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                renderer.setPixelRatio(Math.min(window.devicePixelRatio, HIGH_PERFORMANCE_MODE ? 1.8 : 1.2));
+
+                MAX_ARTIFACTS_SHADER = this.detectMaxUniformCapacity(); /* Detect *after* renderer exists */
+                console.log(`Graphics: Detected max shader artifacts = ${MAX_ARTIFACTS_SHADER}`);
+
+                const geometry = new THREE.PlaneGeometry(2, 2);
+                this.material = new THREE.ShaderMaterial({
+                    defines: { MAX_ARTIFACTS_SHADER: MAX_ARTIFACTS_SHADER, STATE_VEC_SIZE: STATE_VECTOR_SIZE },
+                    uniforms: {
+                        time: { value: 0.0 }, resolution: { value: new THREE.Vector2(window.innerWidth * renderer.getPixelRatio(), window.innerHeight * renderer.getPixelRatio()) },
+                        mainState: { value: new Float32Array(STATE_VECTOR_SIZE).fill(0.5) }, numActiveArtifacts: { value: 0 },
+                        artifactStates: { value: this._createArtifactUniformArray() }, artifactSimilarities: { value: new Float32Array(MAX_ARTIFACTS_SHADER).fill(0.0) },
+                        complexity: { value: complexityLevel }, syncFactor: { value: 0.0 }, feedbackIntensity: { value: 0.0 }
+                    },
+                    vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
+                    // <<< CHANGE: Shader code v0.5.9 - More dynamics via time, stronger pulses/artifacts >>>
+                    fragmentShader: `
+                        precision highp float;
+                        uniform float time; uniform vec2 resolution; uniform float mainState[STATE_VEC_SIZE];
+                        uniform int numActiveArtifacts;
+                        uniform float artifactStates[MAX_ARTIFACTS_SHADER * STATE_VEC_SIZE];
+                        uniform float artifactSimilarities[MAX_ARTIFACTS_SHADER];
+                        uniform float complexity; uniform float syncFactor; uniform float feedbackIntensity;
+                        varying vec2 vUv;
+
+                        #define PI 3.14159265359
+                        #define STATE_VEC_SIZE_FLOAT float(STATE_VEC_SIZE)
+
+                        /* Utility functions */
+                        float hash1(float n){ return fract(sin(n)*43758.5453); }
+                        vec2 hash2(vec2 p){ p=vec2(dot(p,vec2(127.1,311.7)),dot(p,vec2(269.5,183.3))); return -1.+2.*fract(sin(p)*43758.5453); }
+                        float noise(vec2 x){ vec2 p=floor(x); vec2 f=fract(x); f=f*f*(3.-2.*f); float n=p.x+p.y*57.; return mix(mix(hash1(n),hash1(n+1.),f.x),mix(hash1(n+57.),hash1(n+58.),f.x),f.y); }
+                        float fbm(vec2 p, float H, int octaves){ float G=exp2(-H); float f=1., a=1., t=0.; for(int i=0; i<10; i++){ if(i>=octaves) break; t+=a*noise(f*p); f*=2.; a*=G; } return t; }
+                        vec3 hsv2rgb(vec3 c){ vec4 K=vec4(1.,2./3.,1./3.,3.); vec3 p=abs(fract(c.xxx+K.xyz)*6.-K.www); return c.z*mix(K.xxx,clamp(p-K.xxx,0.,1.),c.y); }
+                        float pulse(float t, float freq){ return 0.5+0.5*cos(t*freq*2.*PI); }
+                        mat2 rotate2d(float a){ float s=sin(a),c=cos(a); return mat2(c,-s,s,c); }
+
+                        /* Getters for state arrays */
+                        float getArtifactState(int artIdx, int stateIdx){
+                            if(artIdx < 0 || artIdx >= MAX_ARTIFACTS_SHADER || stateIdx < 0 || stateIdx >= STATE_VEC_SIZE) return 0.5;
+                            int flatIdx = artIdx * STATE_VEC_SIZE + stateIdx;
+                            return artifactStates[flatIdx];
+                        }
+                        float getMainStateSafe(int idx, float defaultVal) {
+                            if (idx >= 0 && idx < STATE_VEC_SIZE) { return mainState[idx]; }
+                            return defaultVal;
+                        }
+
+                        void main() {
+                            vec2 uv = vUv;
+                            vec2 centerUv = uv - 0.5;
+                            float distCenter = length(centerUv);
+
+                            /* Use safe getter for main state values */
+                            float kick = getMainStateSafe(0, 0.5);       /* Index 0: kick influence */
+                            float arpSpeed = 0.1 + getMainStateSafe(1, 0.5) * 2.; /* Index 1 -> arpSpeed */
+                            float bassCut = getMainStateSafe(2, 0.5);    /* Index 2: bassCut influence */
+                            float bright = 0.1 + getMainStateSafe(3, 0.5) * 0.6; /* Index 3 -> base brightness */
+                            float sat = 0.4 + getMainStateSafe(4, 0.5) * 0.6; /* Index 4 -> saturation */
+                            float hueBase = getMainStateSafe(5, 0.5);      /* Index 5: base hue */
+                            float flowSpeed = 0.03 + getMainStateSafe(6, 0.0) * 0.35 * (1.0 + complexity * 0.7); /* Index 6: Faster flow, complexity influence */
+                            float warpAmt = getMainStateSafe(7, 0.0) * 0.45 * (0.8 + complexity * 0.8); /* Index 7: Stronger warp, complexity influence */
+                            float compVal = getMainStateSafe(8, 0.5);      /* Index 8: complexity value from state */
+                            float tempo = 100. + getMainStateSafe(9, 0.5) * 100.; /* Index 9: tempo */
+                            float reverb = getMainStateSafe(10, 0.2);      /* Index 10: reverb amount (visual effect) */
+                            float leadDecay = getMainStateSafe(11, 0.5);   /* Index 11: lead decay (visual effect) */
+                            float noiseInt = getMainStateSafe(12, 0.1) * 0.9 * (0.7 + complexity * 0.8); /* Index 12 -> noise intensity */
+                            float vignette = 0.2 + getMainStateSafe(13, 0.5) * 0.7; /* Index 13 -> vignette */
+                            float pulseInt = getMainStateSafe(14, 0.5) * 0.9; /* Index 14 -> main pulse intensity mod */
+                            float masterVol = getMainStateSafe(15, 0.6);   /* Index 15: master volume */
+                            float grain = getMainStateSafe(20, 0.0) * 0.1 * (0.6 + complexity * 1.1); /* Index 20 -> grain amount */
+                            float rotationSpeed = (getMainStateSafe(21, 0.5) - 0.5) * 0.15 * (1.0 + complexity); /* Index 21 -> Rotation Speed */
+
+                            /* Calculate complexity-influenced FBM parameters */
+                            float compH = 0.4 + compVal * 0.5 * (0.5 + complexity * 0.9); /* FBM Hurst */
+                            int compOct = 2 + int(compVal * 4.5 * (0.6 + complexity * 1.2)); compOct = clamp(compOct, 1, 8); /* FBM octaves */
+
+                            /* --- Core Visual Logic --- */
+                            /* Global time-based effects */
+                            float globalPulse = pulse(time, 0.05); /* Slow global pulse */
+                            float globalRot = time * rotationSpeed; /* Slow global rotation */
+                            vec2 rotatedUv = rotate2d(globalRot) * centerUv + 0.5; /* Apply rotation */
+
+                            vec2 flowVec = vec2(cos(time * flowSpeed * 0.8 + globalPulse * 0.5), sin(time * flowSpeed * 1.1)) * 0.6;
+                            vec2 warpDir = hash2(rotatedUv * 3.5 + time * 0.07);
+                            /* Make warp stronger near center, modulated by noise and complexity */
+                            float warpEffect = warpAmt * (0.7 + noise(rotatedUv * 2.8 + time * 0.04) * 0.3) * pow(1.0 - distCenter * 1.3, 2.5) * (1.1 + complexity);
+                            vec2 warpOffset = warpDir * warpEffect;
+                            vec2 warpedUv = (rotatedUv - 0.5) * (1.0 - bassCut * 0.15 + kick * 0.05) + 0.5 + warpOffset; /* Kick subtly pushes UV */
+
+                            float baseFreq = 1.8 + arpSpeed * 3.5 * (1.0 + complexity * 0.4); /* Increase base freq */
+                            float n = fbm(warpedUv * baseFreq + flowVec + time*0.01, compH, compOct); /* Add slight time shift to FBM */
+
+                            float hue = fract(hueBase + time * 0.015 + n * 0.12 - bassCut * 0.2 + syncFactor * 0.1); /* Faster hue shift */
+                            float beatPulse = pulse(time, tempo / 60.0); /* Main beat pulse */
+                            float kickPulse = beatPulse * pow(kick, 1.5) * pulseInt; /* Kick-modulated pulse (stronger kick influence) */
+
+                            /* Brightness influenced by state 'bright', kick pulse, and overall volume/intensity */
+                            float finalBright = bright * (1.0 + kickPulse * 0.8 - pulseInt * 0.2 + masterVol * 0.25 + globalPulse * 0.1);
+                            /* Apply vignette */
+                            finalBright *= pow(max(0., 1.0 - distCenter * distCenter * vignette * 2.8), 1.7);
+                            /* Add subtle base brightness flicker */
+                            finalBright += (hash1(time * 12.3) - 0.5) * 0.03;
+
+                            /* Reverb/Decay visual effect: Trails/Glow */
+                            float trailEffect = reverb * leadDecay * 0.2 * (0.5 + complexity * 0.5);
+                            float trailN = fbm(warpedUv * (baseFreq*0.8) + flowVec*0.7 - time*0.02, compH*0.8, compOct-1);
+                            vec3 trailColor = hsv2rgb(vec3(fract(hue + 0.1), sat * 0.8, finalBright * 0.6));
+                            vec3 finalColor = hsv2rgb(vec3(hue, sat, finalBright)) + trailColor * trailEffect * smoothstep(0.3, 0.7, trailN);
+
+                            /* --- Artifact Blending --- */
+                            for(int i = 0; i < numActiveArtifacts; ++i) {
+                                if (i >= MAX_ARTIFACTS_SHADER) break; /* Safety break */
+                                float sim = artifactSimilarities[i]; if(sim <= 0.05) continue;
+
+                                /* Get artifact state values using the safe getter */
+                                float artHueBase = getArtifactState(i, 5); /* hue */
+                                float artSat = 0.4 + getArtifactState(i, 4) * 0.7; /* resonance -> sat (more influence) */
+                                float artBright = 0.1 + getArtifactState(i, 3) * 0.7 * (0.8 + complexity * 0.5); /* bassRes -> bright */
+                                float artTempo = 100. + getArtifactState(i, 9) * 100.; /* tempo */
+                                float artKick = getArtifactState(i, 0); /* kick */
+                                float artCompVal = getArtifactState(i, 8); /* complexity */
+                                float artFlowSpeed = 0.02 + getArtifactState(i, 6) * 0.3 * (1.0 + complexity); /* Artifact flow speed */
+
+                                /* Generate a unique seed/offset for this artifact's visual pattern */
+                                float artSeed = hash1(float(i) * 1.23 + getArtifactState(i, 30)); /* Use index 30 if available */
+
+                                /* Create a noise mask for blending, influenced by artifact complexity, seed, and flow */
+                                float maskFreq = 2.5 + float(i) * 1.8 + artSeed * 2.5 + artCompVal * 3.5;
+                                float maskTime = time * 0.04 * (0.6 + float(i+1) * 0.6 + artSeed * 0.6 + artFlowSpeed * 5.0) * (1.0 + complexity * 0.4); /* Faster mask movement */
+                                float artMask = noise(rotatedUv * maskFreq + maskTime + artSeed * 6.0);
+                                artMask = smoothstep(0.4, 0.6, artMask); /* Slightly softer mask edges */
+                                artMask *= sim * (0.5 + complexity * 0.9); /* Stronger mask by similarity and global complexity */
+
+                                /* Artifact color */
+                                float artHue = fract(artHueBase + time * 0.008 + n * 0.07 + artSeed * 0.15); /* More dynamic hue */
+                                vec3 artColor = hsv2rgb(vec3(artHue, artSat, artBright * (1.0 + artKick * 0.4) )); /* Artifact kick boosts its color brightness */
+
+                                /* Blend artifact color based on mask */
+                                finalColor = mix(finalColor, artColor, artMask * clamp(0.5 + complexity * 0.6, 0.15, 0.9)); /* Stronger blend factor */
+
+                                /* Add artifact "echo pulse" - additive light */
+                                float artBeatPulse = pulse(time, artTempo / 60.0);
+                                float echoIntensity = artBeatPulse * pow(artKick, 1.5) * sim * clamp(0.2 + complexity * 0.4, 0.1, 0.55); /* <<< STRONGER echo pulse */
+                                finalColor += vec3(echoIntensity * artMask) * artColor * 1.8; /* <<< Make echo pulse brighter and more colorful */
+                            }
+
+                            /* --- Final Touches --- */
+                            /* Grain / Noise */
+                            finalColor += (hash1(dot(rotatedUv, vec2(12.9898, 78.233)) + time*1.1) - 0.5) * grain * noiseInt * (1.0 + complexity * 0.6); /* Faster grain */
+                            /* Sync factor adds a subtle cool overlay */
+                            finalColor = mix(finalColor, vec3(0.6, 0.7, 0.9), syncFactor * 0.12);
+                            /* Feedback flash effect */
+                            finalColor += feedbackIntensity * vec3(1.0, 1.0, 0.9);
+
+                            gl_FragColor = vec4(clamp(finalColor, 0.0, 1.0), 1.0);
+                        }
+                    `
+                });
+                const mesh = new THREE.Mesh(geometry, this.material);
+                scene.add(mesh);
+
+                 /* Log potential uniform limits after context exists */
+                 try { const gl = renderer.getContext(); const maxVec = gl.getParameter(gl.MAX_FRAGMENT_UNIFORM_VECTORS); console.log(`Max Fragment Uniform Vectors: ${maxVec}`); const neededVec = Math.ceil(STATE_VECTOR_SIZE / 4) + MAX_ARTIFACTS_SHADER * Math.ceil(STATE_VECTOR_SIZE / 4) + Math.ceil(MAX_ARTIFACTS_SHADER / 4) + 20; console.log(`Estimated Needed Vectors: ~${neededVec}`); if (maxVec < neededVec) { console.warn(`Potential Uniform Limit Issue: Max uniforms (${maxVec}) might be less than estimated need (~${neededVec}). Reducing shader artifacts might help.`); } } catch (e) { console.warn("Could not get WebGL uniform limits."); }
+            }
+
+            detectMaxUniformCapacity() {
+                let detectedMax = 1;
+                try {
+                    const gl = renderer.getContext(); /* Renderer should exist now */
+                    if (!gl) { console.warn("Detect uniform capacity: No GL context available yet."); return HIGH_PERFORMANCE_MODE ? 2 : 1; }
+                    const maxUniformVectors = gl.getParameter(gl.MAX_FRAGMENT_UNIFORM_VECTORS);
+                    /* Estimate base uniforms needed (time, res, mainState, complexity, sync, feedback, etc.) ~20-25 vectors + state vector */
+                    const baseVectorsUsed = Math.ceil(STATE_VECTOR_SIZE / 4.0) + 25;
+                    /* Estimate uniforms per artifact (state vector + similarity) */
+                    const vectorsPerArtifact = Math.ceil(STATE_VECTOR_SIZE / 4.0) + 1; /* +1 for similarity (packed if possible) */
+                    const availableVectors = maxUniformVectors - baseVectorsUsed;
+
+                    if (availableVectors > 0 && vectorsPerArtifact > 0) {
+                         /* Be conservative (use 80% capacity) */
+                        detectedMax = Math.max(1, Math.floor((availableVectors / vectorsPerArtifact) * 0.8));
+                    } else {
+                        detectedMax = 1; /* Fallback if calculation fails */
+                    }
+                    /* Cap based on performance mode as a sanity check */
+                    const modeCap = HIGH_PERFORMANCE_MODE ? 4 : 2;
+                    detectedMax = Math.min(detectedMax, modeCap, MAX_ARTIFACTS); /* Ensure it doesn't exceed overall max artifacts */
+                } catch (e) {
+                    console.warn("Error detecting uniform capacity:", e);
+                    detectedMax = HIGH_PERFORMANCE_MODE ? 2 : 1; /* Fallback on error */
+                }
+                /* console.log(`Calculated MAX_ARTIFACTS_SHADER: ${detectedMax}`); // Logged in constructor now */
+                return detectedMax;
+            }
+
+            _createArtifactUniformArray() { return new Float32Array(MAX_ARTIFACTS_SHADER * STATE_VECTOR_SIZE).fill(0.5); }
+
+            update(mainStateArray, time, currentActiveArtifactInfo, currentComplexity, currentSyncFactor, currentFeedbackIntensity) {
+                if (!this.material || !renderer) return;
+                this.material.uniforms.time.value = time;
+                this.material.uniforms.complexity.value = currentComplexity;
+                this.material.uniforms.syncFactor.value = currentSyncFactor;
+                this.material.uniforms.feedbackIntensity.value = currentFeedbackIntensity;
+
+                /* Update main state uniform */
+                if (mainStateArray?.length === STATE_VECTOR_SIZE) {
+                    this.material.uniforms.mainState.value = Float32Array.from(mainStateArray); /* Ensure it's a Float32Array */
+                    this.material.uniforms.mainState.needsUpdate = true;
+                }
+
+                /* Update artifact uniforms */
+                const artifactStatesFlat = this.material.uniforms.artifactStates.value;
+                const artifactSimilarities = this.material.uniforms.artifactSimilarities.value;
+                artifactStatesFlat.fill(0.5); /* Reset artifact states */
+                artifactSimilarities.fill(0.0); /* Reset similarities */
+
+                const numToSend = Math.min(currentActiveArtifactInfo.ids.length, MAX_ARTIFACTS_SHADER);
+                this.material.uniforms.numActiveArtifacts.value = numToSend;
+
+                for (let i = 0; i < numToSend; ++i) {
+                    const stateArr = currentActiveArtifactInfo.stateArrays[i];
+                    const sim = currentActiveArtifactInfo.similarities[i];
+                    if (stateArr?.length === STATE_VECTOR_SIZE) {
+                        artifactStatesFlat.set(stateArr, i * STATE_VECTOR_SIZE); /* Copy state into flat array */
+                        artifactSimilarities[i] = sim; /* Set similarity */
+                    } else {
+                        artifactSimilarities[i] = 0.0; /* Mark as invalid/inactive if data is bad */
+                        if(stateArr) console.warn(`Artifact data invalid size (${stateArr.length}) for shader slot ${i}`);
+                    }
+                }
+                this.material.uniforms.artifactStates.needsUpdate = true;
+                this.material.uniforms.artifactSimilarities.needsUpdate = true;
+
+                /* Render the scene */
+                try {
+                    if (renderer.getContext().isContextLost()) {
+                        console.error("WebGL Context Lost! Cannot render.");
+                        showError("WebGL Context Lost!");
+                        return; /* Stop rendering if context is lost */
+                    }
+                    renderer.render(scene, camera);
+                }
+                catch (e) {
+                    console.error("THREE.WebGLRenderer.render error:", e);
+                    if (e.message && e.message.includes("context lost")) {
+                        showError("WebGL Context Lost!");
+                    }
+                    /* Potentially try to handle other render errors if needed */
+                }
+            }
+
+            resize() {
+                const w=window.innerWidth; const h=window.innerHeight;
+                camera.aspect=w/h; camera.updateProjectionMatrix();
+                const pr=Math.min(window.devicePixelRatio,HIGH_PERFORMANCE_MODE?1.8:1.2);
+                renderer.setSize(w,h); renderer.setPixelRatio(pr);
+                if (this.material) this.material.uniforms.resolution.value.set(w*pr,h*pr);
+            }
+        }
+
+        // --- Audio Controller ---
+        class AudioController {
+             constructor() {
+                 this.audioWorkletNode = null; this.isInitialized = false; this.isInitializing = false; this.micStreamSource = null;
+                 this.audioWarningDisplayed = false; this.warningTimeout = null;
+                 /* Add interaction listeners to initialize audio context */
+                 document.body.addEventListener('pointerdown', () => this.tryInitializeAudio(), { once: true, passive: true });
+                 document.body.addEventListener('touchstart', () => this.tryInitializeAudio(), { once: true, passive: true });
+                 /* Handle page visibility changes */
+                 document.addEventListener('visibilitychange', async () => {
+                     if (!audioContext) return;
+                     if (document.hidden) {
+                         if (audioContext.state === 'running') {
+                             console.log("Suspending AC due to page visibility");
+                             await audioContext.suspend().catch(e=>console.warn("AC suspend err:", e));
+                         }
+                     } else {
+                         /* Attempt to re-initialize/resume when page becomes visible again */
+                         await this.tryInitializeAudio();
+                     }
+                 });
+             }
+
+             showWarning(msg, dur=5000) {
+                 const w=document.getElementById('warningInfo');
+                 if(w){
+                     if(this.warningTimeout) clearTimeout(this.warningTimeout);
+                     w.textContent=msg; w.style.display='block'; w.style.color='yellow';
+                     this.audioWarningDisplayed=true;
+                     if(dur>0) this.warningTimeout=setTimeout(()=>this.hideWarning(), dur);
+                 }
+             }
+             hideWarning() {
+                 const w=document.getElementById('warningInfo');
+                 if(w && this.audioWarningDisplayed){
+                     w.style.display='none'; this.audioWarningDisplayed=false;
+                     if(this.warningTimeout){ clearTimeout(this.warningTimeout); this.warningTimeout=null; }
+                 }
+             }
+
+             async tryInitializeAudio() {
+                 if (this.isInitializing || (this.isInitialized && audioContext?.state === 'running')) return; /* Already running or init in progress */
+                 this.isInitializing = true; interactionOccurred = true;
+                 console.log("Trying AudioContext init/resume...");
+
+                 try {
+                     /* Close existing context if it's in a bad state (interrupted, closed) */
+                     if (audioContext && audioContext.state !== 'running') {
+                         console.log(`Closing previous AudioContext (state: ${audioContext.state})`);
+                         await audioContext.close().catch(e => console.error("AudioContext close error:", e));
+                         /* Reset related components */
+                         audioContext=null; this.audioWorkletNode=null; this.isInitialized=false;
+                         this.micStreamSource=null; analyserNode=null; masterGain=null;
+                         currentInputState.mic.available=false;
+                     }
+
+                     /* Create new context if needed */
+                     if (!audioContext) {
+                         audioContext = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive', sampleRate: 44100 });
+                         console.log(`AudioContext created. State: ${audioContext.state}, Sample Rate: ${audioContext.sampleRate}`);
+                         /* Recreate essential nodes */
+                         masterGain = audioContext.createGain();
+                         masterGain.gain.setValueAtTime(1.0, audioContext.currentTime); /* Start at default gain */
+                         masterGain.connect(audioContext.destination);
+                         analyserNode = audioContext.createAnalyser();
+                         analyserNode.fftSize = MIC_FFT_SIZE;
+                         analyserNode.smoothingTimeConstant = 0.5;
+                         currentInputState.mic.fft = new Float32Array(analyserNode.frequencyBinCount); /* Ensure FFT array matches analyser */
+                     }
+
+                     /* Resume if suspended */
+                     if (audioContext.state === 'suspended') {
+                         console.log("AudioContext suspended, resuming...");
+                         await audioContext.resume();
+                         console.log(`AudioContext resumed. State: ${audioContext.state}`);
+                     }
+                 } catch (e) {
+                     console.error("AudioContext create/resume failed:", e);
+                     showError("Audio Error: Context init failed.");
+                     this.isInitializing = false;
+                     return; /* Don't proceed if context failed */
+                 }
+
+                 /* Proceed with Worklet setup only if context is running and not already initialized */
+                 if (audioContext.state === 'running' && !this.isInitialized) {
+                     console.log("Adding AudioWorklet...");
+                     try {
+                          // <<< CHANGE: Audio Worklet Code v0.5.9 - Fixed RefError, increased gains, synth tweaks >>>
+                          const processorCode = `
+                              const WORKLET_STATE_SIZE = ${STATE_VECTOR_SIZE};
+                              const BASE_BPM = 90.0; /* Base tempo */
+                              /* Utility functions */
+                              function fract(n){return n-Math.floor(n);}
+                              function lerp(a,b,t){return a+(b-a)*t;}
+                              function clamp(v,min,max){return Math.min(max,Math.max(min,v));}
+                              function hash(n){return fract(Math.sin(n*12.9898)*43758.5);}
+                              function hashSigned(n){return Math.sin(n*78.233)*.5+.5;} /* -1 to 1 range approx */
+                              function softClip(x, k = 1.5) { return Math.tanh(x * k); } /* Apply tanh saturation */
+
+                              /* LFO shapes */
+                              function sineLFO(p){return(Math.sin(p*2*Math.PI)+1)*.5;} /* 0 to 1 */
+                              function sawLFO(p){return p;} /* 0 to 1 */
+                              function triLFO(p){return 1-Math.abs(fract(p+.5)*2-1);} /* 0 to 1 */
+                              function sqrLFO(p,d=.5){return p<d?1:0;} /* 0 or 1 */
+
+                              /* State Variable Filter (SVF) - for versatile filtering */
+                              class SVF{
+                                  constructor(){this.z1=0;this.z2=0;this.g=0;this.k=0;this.inv_den=0;}
+                                  setParams(cutoffNorm, resNorm, sampleRate){
+                                      const f = 20 * Math.pow(1000, clamp(cutoffNorm,.01,.99)); /* Map 0-1 to 20-20k Hz exponentially */
+                                      const q = 0.5 + clamp(resNorm,0,.98)*19.5; /* Map 0-1 to Q 0.5-20 */
+                                      this.g=Math.tan(Math.PI*f/sampleRate);
+                                      this.k=1/q;
+                                      const g2=this.g*this.g;
+                                      this.inv_den=1/(1+this.k*this.g+g2);
+                                  }
+                                  process(input){
+                                      const v0=input;
+                                      const v1=(this.z1+this.g*(v0-this.z2))*this.inv_den;
+                                      const v2=(this.z2+this.g*v1)*this.inv_den;
+                                      this.z1=v1+(v1-this.z1); /* Update state with 2x integrator */
+                                      this.z2=v2+(v2-this.z2);
+                                      return{lowpass:v2, bandpass:v1, highpass:(v0-this.k*v1-v2), notch:v2+(v0-this.k*v1-v2)};
+                                  }
+                              }
+
+                              class GenerativeProcessor extends AudioWorkletProcessor {
+                                  constructor(options) {
+                                      super(options);
+                                      this.sr=sampleRate;
+                                      this.phase=0; /* Master phase counter */
+                                      this.state=new Array(WORKLET_STATE_SIZE).fill(.5); /* Current resonant state */
+                                      this.lastBeatPhase=0; this.lastSixteenthPhase=0;
+                                      this.beatCounter=0; this.sixteenthCounter=0;
+                                      this.complexity=0.5; /* Global complexity level */
+
+                                      /* Filters for different synth sections (stereo) */
+                                      this.filters={
+                                          bass:[new SVF(),new SVF()],
+                                          noise:[new SVF(),new SVF()],
+                                          lead:[new SVF(),new SVF()],
+                                          hat:[new SVF(),new SVF()]
+                                      };
+
+                                      /* Delay effect */
+                                      const maxDelaySeconds = 1.2;
+                                      this.delayBuffer=[new Float32Array(Math.ceil(this.sr*maxDelaySeconds)), new Float32Array(Math.ceil(this.sr*maxDelaySeconds))];
+                                      this.delayWritePos=[0,0];
+                                      this.delayTimeSamples=[this.sr*.375,this.sr*.375]; /* Current delay time per channel */
+                                      this.delayFeedback=[.5,.5]; this.delayMix=.3;
+
+                                      /* Reverb (simplified using Comb filters + Allpass filters) */
+                                      const combDelaysSeconds=[.0311,.0383,.0427,.0459]; /* Comb delay lengths (seconds) */
+                                      const createCombBuf=s=>new Float32Array(Math.ceil(this.sr*s));
+                                      this.combBuffers=combDelaysSeconds.map(l=>[createCombBuf(l),createCombBuf(l)]);
+                                      this.combWritePos=combDelaysSeconds.map(()=>[0,0]);
+                                      this.combFeedback=.8; this.combDamping=.3; this.combLastSample=combDelaysSeconds.map(()=>[0,0]); /* For LPF in feedback */
+
+                                      const apDelaysSeconds=[.0053,.0121]; /* Allpass delay lengths */
+                                      const createAPBuf=s=>new Float32Array(Math.ceil(this.sr*s));
+                                      this.apBuffers=apDelaysSeconds.map(l=>[createAPBuf(l),createAPBuf(l)]);
+                                      this.apWritePos=apDelaysSeconds.map(()=>[0,0]);
+                                      this.apFeedback=.5; this.reverbMix=.2;
+
+                                      /* LFOs for modulation */
+                                      this.lfoPhase={filter:0, pitch:0, noise:0, fx:0};
+                                      this.lfoRate={filter:.1, pitch:3, noise:.2, fx:.05}; /* Base rates Hz */
+                                      this.lastMasterLevel = 1.0; /* Store last level for smoothing */
+
+                                      /* Handle messages from main thread (state updates) */
+                                      this.port.onmessage=(e)=>{
+                                          if(e.data.state?.length===WORKLET_STATE_SIZE) this.state=e.data.state;
+                                          if(typeof e.data.complexity === 'number') this.complexity=clamp(e.data.complexity,0,1);
+                                      };
+                                      console.log("Worklet Processor Initialized. SR:", this.sr);
+                                  }
+
+                                  /* Define automatable parameters */
+                                  static get parameterDescriptors(){
+                                      return[{name:'masterLevel', defaultValue:1.0, minValue:0, maxValue:2.8, automationRate: 'a-rate'}]; /* <<< CHANGE: Increased max gain slightly more */
+                                  }
+
+                                  /* Helper to safely get state values */
+                                  getStateVal(index, defaultVal) {
+                                       const s = this.state; /* Cache locally */
+                                       return (s && index >= 0 && index < s.length && s[index] !== undefined) ? s[index] : defaultVal;
+                                  }
+
+                                  process(inputs, outputs, parameters) {
+                                      const output=outputs[0]; /* Assuming stereo output */
+                                      const bufferSize=output[0].length;
+                                      const masterLevelParam=parameters.masterLevel; /* Get master level parameter array */
+                                      const srInv = 1.0 / this.sr; /* Inverse sample rate */
+                                      const g = this.getStateVal.bind(this); /* Alias for shorter calls */
+                                      const comp = this.complexity; /* Cache complexity */
+
+                                      /* --- Extract state parameters safely --- */
+                                      /* Parameters influenced by state vector AND complexity */
+                                      const kickIntensity = 0.9 + g(0,.5) * 0.6; /* Kick presence/gain */
+                                      const kickTightness = g(1,.5); /* Kick decay/pitch env */
+                                      const bassCutoffBase = .02 + g(2,.5) * .4; /* Bass filter cutoff base */
+                                      const bassResBase = (g(3,.5)*0.95); /* Bass filter resonance base */
+                                      const bassRes = bassResBase * (0.8 + comp * 0.7); /* Resonance increases with complexity */
+                                      const bassPattern = Math.floor(g(4,0) * 5); /* Bass rhythm pattern index */
+                                      const bassOctave = Math.floor(g(20,.5) * 3) - 1; /* Bass octave offset */
+                                      const bassDecay = g(22,.1) * .8 * (0.8 + comp * 0.5); /* Bass envelope decay */
+
+                                      const noiseLevelBase = .001 + g(12,.1) * .15; /* Noise level base */
+                                      const noiseLevel = noiseLevelBase * (0.6 + comp * 1.2); /* Noise level increases with complexity */
+                                      const noiseCutoffBase = .05 + g(13,.5) * .85; /* Noise filter cutoff base */
+                                      const noiseResBase = (g(14,.5) * 0.95); /* Noise filter resonance base */
+                                      const noiseRes = noiseResBase * (0.8 + comp * 0.6); /* Resonance increases with complexity */
+                                      const noiseLfoSpeed = (.05 + g(24,.5) * .5) * (0.7 + comp * 0.8); /* Noise LFO speed increases with complexity */
+
+                                      const leadPresenceBase = g(16,.5) * 1.2; /* Lead presence/gain base */
+                                      const leadPresence = leadPresenceBase * (0.8 + comp*0.4); /* Lead gets slightly louder with complexity */
+                                      const leadCutoffBase = .08 + g(6,.5) * .75; /* Lead filter cutoff base */
+                                      const leadResBase = (g(7,.5) * 0.92); /* Lead filter resonance base */
+                                      const leadRes = leadResBase * (0.8 + comp * 0.6); /* Resonance increases with complexity */
+                                      const leadPitchModDepthBase = g(18,.2) * .7; /* Lead pitch LFO depth base */
+                                      const leadPitchModDepth = leadPitchModDepthBase * (0.8 + comp * 0.6); /* Modulation increases with complexity */
+                                      const leadPattern = Math.floor(g(19,0) * 5); /* Lead rhythm pattern index */
+                                      const leadDecayBase = (.03 + g(11,.5) * .6); /* Lead envelope decay base */
+                                      const leadDecay = leadDecayBase * (0.7 + comp * 0.6); /* Decay time influenced by complexity */
+                                      const leadLfoRateBase = (.1 + g(21,.5) * 6); /* Lead LFO rate base */
+                                      const leadLfoRate = leadLfoRateBase * (0.6 + comp * 1.0); /* LFO rate increases significantly with complexity */
+
+                                      const hat1LevelBase = g(23,.5) * 0.8; /* Hat 1 level base */
+                                      const hat1Level = hat1LevelBase * (1.0 + comp * 0.4); /* Hats louder with complexity */
+                                      const hat2LevelBase = g(25,.5) * 0.7; /* Hat 2 level base */
+                                      const hat2Level = hat2LevelBase * (1.0 + comp * 0.3);
+                                      const hatPattern = Math.floor(g(26,0) * 5); /* Hat rhythm pattern index */
+                                      const hatDecay1 = .008 + g(28,.5) * .05; /* Hat 1 decay */
+                                      const hatDecay2 = .04 + g(29,.5) * .18; /* Hat 2 decay */
+                                      const hatHpCutoff = .25 + g(30,.5) * .65; /* Hat highpass filter cutoff */
+
+                                      this.lfoRate.fx = (0.03 + g(36,.5)*.15) * (1.0 + comp * 0.5); /* FX LFO rate */
+                                      const fxLfoVal = sineLFO(this.lfoPhase.fx); /* Current FX LFO value */
+
+                                      const delayTimeBase = .05 + g(31,.5) * .8; /* Base delay time */
+                                      const delayFeedbackBase = clamp((g(32,.5) + fxLfoVal*.1), 0, .98); /* Feedback base + LFO mod */
+                                      this.delayFeedback[0] = this.delayFeedback[1] = delayFeedbackBase * (0.7 + comp * 0.4); /* Feedback influenced by complexity */
+                                      const delayMixBase = clamp(g(33,.3)*.8, 0, 1); /* Delay mix level base */
+                                      this.delayMix = delayMixBase * (0.8 + comp * 0.4); /* Mix increases with complexity */
+
+                                      const reverbMixBase = clamp(g(10,.2)*.7, 0, 1); /* Reverb mix level base */
+                                      this.reverbMix = reverbMixBase * (0.8 + comp * 0.4); /* Mix increases with complexity */
+                                      const combFeedbackBase = (.7+clamp(g(34,.5),0,1)*.28);
+                                      this.combFeedback = combFeedbackBase * (0.9 + comp * 0.2);
+                                      const combDampingBase = (.05+clamp(g(35,.5),0,1)*.7*(.5+comp*.5));
+                                      this.combDamping = combDampingBase * (0.8 + comp * 0.4);
+                                      const apFeedbackBase = (.4+g(37,.5)*.3);
+                                      this.apFeedback = apFeedbackBase * (0.9 + comp * 0.2);
+
+                                      /* Calculate tempo and timing */
+                                      const bpm = BASE_BPM + g(9,.5) * 120;
+                                      const secondsPerBeat = 60.0 / clamp(bpm, 40, 240);
+                                      const samplesPerBeat = secondsPerBeat * this.sr;
+
+                                      /* Update LFO phases */
+                                      this.lfoPhase.filter = fract(this.lfoPhase.filter + bufferSize * this.lfoRate.filter * srInv);
+                                      this.lfoPhase.pitch = fract(this.lfoPhase.pitch + bufferSize * leadLfoRate * srInv); /* Use complexity-influenced rate */
+                                      this.lfoPhase.noise = fract(this.lfoPhase.noise + bufferSize * noiseLfoSpeed * srInv); /* Use complexity-influenced rate */
+                                      this.lfoPhase.fx = fract(this.lfoPhase.fx + bufferSize * this.lfoRate.fx * srInv); /* Use complexity-influenced rate */
+
+                                      /* Calculate LFO values for this block */
+                                      const filterLfoVal = triLFO(this.lfoPhase.filter);
+                                      const leadPitchLfoVal = sineLFO(this.lfoPhase.pitch);
+                                      const noiseLfoVal = triLFO(this.lfoPhase.noise); /* Use noise LFO for something? Maybe noise filter mod */
+
+                                      /* Calculate modulated filter parameters */
+                                      const fBassCut = clamp(bassCutoffBase + filterLfoVal*.25,.01,.95); /* Increased LFO influence */
+                                      const fNoiseCut = clamp(noiseCutoffBase + noiseLfoVal*.5,.01,.95); /* Modulate noise filter */
+                                      const fLeadCut = clamp(leadCutoffBase + leadPitchLfoVal*.5,.01,.95); /* Increased LFO influence */
+
+                                      /* Set filter parameters */
+                                      this.filters.bass.forEach(f=>f.setParams(fBassCut, bassRes, this.sr));
+                                      this.filters.noise.forEach(f=>f.setParams(fNoiseCut, noiseRes, this.sr));
+                                      this.filters.lead.forEach(f=>f.setParams(fLeadCut, leadRes, this.sr));
+                                      this.filters.hat.forEach(f=>f.setParams(hatHpCutoff, 0.1, this.sr)); /* Fixed low resonance for HP */
+
+                                      /* --- Main Processing Loop --- */
+                                      for(let ch=0; ch<output.length; ++ch){ /* Stereo processing */
+                                          const outCh=output[ch];
+                                          /* Get channel-specific buffers/state */
+                                          const delayB=this.delayBuffer[ch]; let dwp=this.delayWritePos[ch];
+                                          const combBs=this.combBuffers.map(b=>b[ch]); let cwp=this.combWritePos.map((p, idx)=>this.combWritePos[idx][ch]); let cls=this.combLastSample.map((s, idx)=>this.combLastSample[idx][ch]);
+                                          const apBs=this.apBuffers.map(b=>b[ch]); let awp=this.apWritePos.map((p, idx)=>this.apWritePos[idx][ch]);
+                                          /* Get channel-specific filters */
+                                          const bassF=this.filters.bass[ch]; const noiseF=this.filters.noise[ch];
+                                          const leadF=this.filters.lead[ch]; const hatF=this.filters.hat[ch];
+                                          /* Calculate panning LFO for delay time variation */
+                                          const panLfo=ch===0?triLFO(this.lfoPhase.noise):triLFO(fract(this.lfoPhase.noise+.5));
+                                          const currentDelayTimeSamples = Math.floor(clamp((delayTimeBase * (1.0 + panLfo*0.15)) * this.sr, 1, delayB.length-1));
+                                          this.delayTimeSamples[ch] = currentDelayTimeSamples;
+
+                                          for(let i=0; i<bufferSize; ++i){
+                                              /* Get current master level - smooth changes */
+                                              const targetMasterLevel = masterLevelParam.length > 1 ? masterLevelParam[i] : masterLevelParam[0];
+                                              const currentMasterLevel = this.lastMasterLevel + (targetMasterLevel - this.lastMasterLevel) * 0.005; /* Simple low-pass smoothing */
+                                              this.lastMasterLevel = currentMasterLevel;
+
+                                              /* Timing calculations */
+                                              const currentPhase = this.phase+i;
+                                              const currentTime = currentPhase * srInv;
+                                              const currentBeat = currentTime / secondsPerBeat;
+                                              const beatPhase = fract(currentBeat); /* Phase within the current beat (0-1) */
+                                              const sixteenthPhase = fract(currentBeat * 4.0); /* Phase within the current 16th note */
+                                              const currentSixteenthNum = Math.floor(currentBeat * 4.0);
+                                              const sixteenthInMeasure = currentSixteenthNum % 16; /* 0-15 */
+
+                                              /* Trigger detection */
+                                              const beatTrigger = beatPhase < this.lastBeatPhase;
+                                              const sixteenthTrigger = sixteenthPhase < this.lastSixteenthPhase;
+                                              if(beatTrigger) this.beatCounter = (this.beatCounter + 1) % 16; /* Counter for patterns */
+                                              if(sixteenthTrigger) this.sixteenthCounter = (this.sixteenthCounter + 1) % 16;
+                                              this.lastBeatPhase = beatPhase; this.lastSixteenthPhase = sixteenthPhase;
+
+                                              /* Initialize sound sources */
+                                              let kick=0, bass=0, noise=0, lead=0, hat1=0, hat2=0;
+
+                                              /* Kick Drum Synthesis */
+                                              if(beatTrigger && (this.beatCounter % 4 === 0 || (this.beatCounter % 4 === 2 && hash(this.beatCounter) > .6))){ /* Simple pattern: on 1 and sometimes 3 */
+                                                  const decay = .01 + kickTightness * .10; /* Slightly shorter decay */
+                                                  const pitchEnvAmt = 70 + kickTightness * 800; /* Pitch envelope amount */
+                                                  const startPitch = 60 + kickTightness * 15; /* Starting pitch */
+                                                  const pitch = startPitch + pitchEnvAmt * Math.exp(-beatPhase / (decay * .04 + .001)); /* Exponential pitch sweep */
+                                                  const amp = Math.exp(-beatPhase / decay); /* Exponential amplitude decay */
+                                                  const click = (hash(currentTime * 9123.4) - .5) * Math.exp(-beatPhase / .0015) * .4; /* Sharper click component */
+                                                  const noiseComp = (hash(currentTime * 4567.8) - .5) * Math.exp(-beatPhase / .008) * .2 * (1.0-kickTightness); /* Noise burst */
+                                                  kick = Math.sin(pitch * beatPhase * 2 * Math.PI) * amp + click + noiseComp;
+                                                  kick *= kickIntensity * 5.0; /* <<< Boosted kick gain */
+                                              }
+
+                                              /* Bass Synth Synthesis */
+                                              let playBass = false;
+                                              const baseBassFreq = 41.2 * Math.pow(2, bassOctave); /* Base frequency with octave offset */
+                                              switch(bassPattern){
+                                                  case 0: playBass = sixteenthTrigger && (sixteenthInMeasure % 4 !== 0); break; /* Offbeat */
+                                                  case 1: playBass = sixteenthTrigger && [1,2,5,6,9,10,13,14].includes(sixteenthInMeasure); break; /* Running */
+                                                  case 2: playBass = sixteenthTrigger && (sixteenthInMeasure % 2 === 1); break; /* Every other 16th */
+                                                  case 3: playBass = sixteenthTrigger && (hash(currentSixteenthNum) > .3); break; /* Randomish */
+                                                  case 4: playBass = sixteenthTrigger && [0,4,8,12,14].includes(sixteenthInMeasure); break; /* Syncopated */
+                                              }
+                                              if(playBass){
+                                                  const bassEnv = Math.exp(-sixteenthPhase / (.04 + bassDecay * .15)); /* Envelope */
+                                                  const sawPhase = fract(currentTime * baseBassFreq); /* Basic saw oscillator phase */
+                                                  const sawPhase2 = fract(currentTime * baseBassFreq * 1.005); /* Slightly detuned */
+                                                  let rawBass = (sawPhase * 2 - 1)*0.5 + (sawPhase2 * 2 - 1)*0.5; /* Mix two saws */
+                                                  rawBass = softClip(rawBass * (1.0 + bassDecay * 4.0)) * bassEnv; /* Apply env + drive */
+                                                  bass = bassF.process(rawBass * 4.5).lowpass; /* Filter and gain <<< Boosted gain */
+                                              }
+
+                                              /* Hat Synthesis (Filtered Noise) */
+                                              let playHat1=false, playHat2=false;
+                                              switch(hatPattern){
+                                                  case 0: playHat1=sixteenthTrigger; playHat2=sixteenthTrigger&&(sixteenthInMeasure%4===2); break; /* Standard */
+                                                  case 1: playHat1=sixteenthTrigger&&(sixteenthInMeasure%2===1); playHat2=sixteenthTrigger&&[6,14].includes(sixteenthInMeasure); break; /* Offbeat */
+                                                  case 2: playHat1=sixteenthTrigger&&sixteenthInMeasure%3!==0; playHat2=sixteenthTrigger&&sixteenthInMeasure===10; break; /* Triplet feel */
+                                                  case 3: playHat1=sixteenthTrigger&&hash(currentSixteenthNum*1.9)>.4; playHat2=sixteenthTrigger&&hash(currentSixteenthNum*2.1+.5)>.7; break; /* Random */
+                                                  case 4: playHat1=sixteenthTrigger&&[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15].filter(x=>x%2==0||x%3==0).includes(sixteenthInMeasure); playHat2=sixteenthTrigger&&sixteenthInMeasure%8===6; break; /* Busy */
+                                              }
+                                              if(playHat1){
+                                                  hat1 = hatF.process((hash(currentTime*5432.1)*2-1)*Math.exp(-sixteenthPhase/hatDecay1)).highpass;
+                                                  hat1 *= hat1Level * 4.2; /* <<< Boosted hat gain */
+                                              }
+                                              if(playHat2){
+                                                  hat2 = hatF.process((hash(currentTime*9876.5)*2-1)*Math.exp(-sixteenthPhase/hatDecay2)).highpass;
+                                                  hat2 *= hat2Level * 4.0; /* <<< Boosted hat gain */
+                                              }
+
+                                              /* Noise Source Synthesis */
+                                              noise = noiseF.process((hash(currentPhase*.5)-.5)*2*noiseLevel).bandpass; /* Filtered noise */
+                                              noise *= 4.0; /* <<< Boosted noise gain */
+
+                                              /* Lead Synth Synthesis */
+                                              let playLead = false;
+                                              const leadBaseFreq = 87.3; /* Approx F#2 */
+                                              switch(leadPattern){
+                                                  case 0: playLead = sixteenthTrigger && [0,3,7,10].includes(sixteenthInMeasure); break; /* Arp-like */
+                                                  case 1: playLead = sixteenthTrigger && (hash(Math.floor(currentBeat*2)) > .65); break; /* Sparser */
+                                                  case 2: playLead = sixteenthTrigger && (sixteenthInMeasure===0||sixteenthInMeasure===8||sixteenthInMeasure===12); break; /* Syncopated */
+                                                  case 3: playLead = sixteenthTrigger && (hash(currentSixteenthNum*1.1) > .85); break; /* Random */
+                                                  case 4: playLead = sixteenthTrigger && Math.sin(currentBeat*Math.PI*2 + Math.sin(currentBeat*Math.PI*.5)*2) > .5; break; /* Weird rhythm */
+                                              }
+                                              if(playLead && leadPresence > .05){
+                                                  const leadEnv = Math.exp(-sixteenthPhase / leadDecay);
+                                                  const pitchMod = leadPitchLfoVal * leadPitchModDepth; /* LFO pitch mod */
+                                                  const noteChoice = hash(Math.floor(currentSixteenthNum / 2)); /* Change note sometimes */
+                                                  const freq = leadBaseFreq * Math.pow(2, pitchMod + Math.floor(noteChoice * 7) / 12.0 + Math.floor(g(17,0.5)*2)); /* Basic scale steps + Octave shift (Index 17) */
+                                                  const sawPhase = fract(currentTime * freq);
+                                                  const rawLead = (sawPhase * 2.0 - 1.0) * leadEnv;
+                                                  lead = leadF.process(rawLead * 1.8 * leadPresence).bandpass; /* <<< Boosted Lead Gain */
+                                              }
+
+                                              /* --- Summing and Effects --- */
+                                              let drySignal = kick + bass + hat1 + hat2 + noise + lead;
+                                              drySignal = softClip(drySignal * 1.4); /* <<< Increased drive on summed dry signal */
+
+                                              /* Delay Processing */
+                                              const delayReadPos = (dwp - currentDelayTimeSamples + delayB.length) % delayB.length;
+                                              const delayedSample = delayB[Math.floor(delayReadPos)];
+                                              delayB[dwp] = clamp(drySignal + delayedSample * this.delayFeedback[ch], -1, 1); /* Write current sample + feedback */
+
+                                              /* Reverb Processing (Comb + Allpass) */
+                                              let combSum = 0;
+                                              /* <<< FIX: Use this.combBuffers.length instead of undefined cLengths */
+                                              for(let c=0; c<this.combBuffers.length; c++){
+                                                  const combLenSamples = Math.floor(this.combBuffers[c][ch].length); /* Use actual buffer length */
+                                                  const combReadPos = (cwp[c] - combLenSamples + combLenSamples) % combLenSamples;
+                                                  let combOut = this.combBuffers[c][ch][combReadPos];
+                                                  /* Simple Low-pass filter in feedback loop */
+                                                  cls[c] = combOut * (1.0 - this.combDamping) + cls[c] * this.combDamping;
+                                                  this.combBuffers[c][ch][cwp[c]] = clamp(drySignal + cls[c] * this.combFeedback, -1, 1);
+                                                  combSum += combOut;
+                                                  cwp[c] = (cwp[c] + 1) % combLenSamples;
+                                              }
+                                              combSum *= (1.0 / this.combBuffers.length); /* Average output of combs */
+
+                                              let apInput = combSum; let apOutput = 0;
+                                              /* <<< FIX: Use this.apBuffers.length instead of undefined aLengths */
+                                              for(let a=0; a<this.apBuffers.length; a++){
+                                                  const apLenSamples = Math.floor(this.apBuffers[a][ch].length);
+                                                  const apReadPos = (awp[a] - apLenSamples + apLenSamples) % apLenSamples;
+                                                  apOutput = this.apBuffers[a][ch][apReadPos];
+                                                  const apProcessed = clamp(apInput + apOutput * this.apFeedback, -1, 1);
+                                                  this.apBuffers[a][ch][awp[a]] = apProcessed;
+                                                  apInput = apOutput - apProcessed * this.apFeedback; /* Allpass structure */
+                                                  awp[a] = (awp[a] + 1) % apLenSamples;
+                                              }
+                                              const wetSignal = apInput; /* Final reverb output */
+
+                                              /* Mix dry, delay, and reverb */
+                                              let finalSignal = drySignal * (1.0 - this.delayMix - this.reverbMix)
+                                                              + delayedSample * this.delayMix
+                                                              + wetSignal * this.reverbMix;
+
+                                              /* Apply master gain and final soft clip */
+                                              finalSignal *= currentMasterLevel;
+                                              outCh[i] = softClip(finalSignal * 2.0); /* <<< Boosted final gain before output clip */
+
+                                              /* Increment delay write pointer */
+                                              dwp = (dwp + 1) % delayB.length;
+                                          } /* End sample loop */
+
+                                          /* Store updated write pointers and last samples for next block */
+                                          this.delayWritePos[ch]=dwp;
+                                          this.combWritePos.forEach((_,c)=>this.combWritePos[c][ch]=cwp[c]);
+                                          this.apWritePos.forEach((_,a)=>this.apWritePos[a][ch]=awp[a]);
+                                          this.combLastSample.forEach((_,c)=>this.combLastSample[c][ch]=cls[c]);
+
+                                      } /* End channel loop */
+
+                                      this.phase += bufferSize; /* Update master phase */
+                                      return true; /* Indicate processor should continue */
+                                  } /* End process */
+                              }
+                              registerProcessor('generative-processor', GenerativeProcessor);
+                          `;
+                          const blob = new Blob([processorCode], { type: 'application/javascript' });
+                          const workletURL = URL.createObjectURL(blob);
+                          await audioContext.audioWorklet.addModule(workletURL);
+                          console.log("AudioWorklet module added.");
+
+                          this.audioWorkletNode = new AudioWorkletNode(audioContext, 'generative-processor', {
+                              outputChannelCount:[2], /* Stereo output */
+                              parameterData:{ masterLevel: 1.0 } /* Initial master level */
+                          });
+                          this.audioWorkletNode.connect(masterGain);
+                          console.log("AudioWorklet Node connected.");
+                          URL.revokeObjectURL(workletURL); /* Clean up blob URL */
+                          this.isInitialized = true;
+                          this.hideWarning(); /* Hide initial interaction warning */
+                          await this.setupMicrophone(); /* Try setting up mic now that worklet is ready */
+
+                     } catch (err) {
+                         console.error("!!! AudioWorklet Initialization Failed:", err);
+                         if(err.message && err.message.includes("SyntaxError")) {
+                             showError("Audio Error: Engine syntax error. Check console.");
+                         } else {
+                              showError("Audio Error: Worklet setup failed.");
+                         }
+                         this.isInitialized=false;
+                         /* Clean up potentially broken nodes */
+                         this.audioWorkletNode?.disconnect(); this.audioWorkletNode=null;
+                         this.micStreamSource?.disconnect(); this.micStreamSource=null;
+                         currentInputState.mic.available=false;
+                     }
+                 } else if (audioContext.state === 'running' && this.isInitialized) {
+                     /* If context was resumed and already initialized, just ensure mic is set up */
+                     await this.setupMicrophone();
+                 }
+                 this.isInitializing = false; /* Mark initialization attempt as complete */
+             }
+
+             update(stateVectorTensor, complexityValue) {
+                 if (!this.isInitialized || !this.audioWorkletNode || !stateVectorTensor || stateVectorTensor.isDisposed) return;
+
+                 /* Send state vector and complexity to the worklet */
+                 if (this.audioWorkletNode.port) {
+                     stateVectorTensor.data()
+                         .then(stateVectorArray => {
+                             if(stateVectorArray.length === STATE_VECTOR_SIZE) {
+                                 /* Check port again in case it becomes invalid between async calls */
+                                 if (this.audioWorkletNode?.port) {
+                                     this.audioWorkletNode.port.postMessage({ state: stateVectorArray, complexity: complexityValue });
+                                 }
+                             } else {
+                                 console.warn(`State array size mismatch for worklet: got ${stateVectorArray.length}, expected ${STATE_VECTOR_SIZE}`);
+                             }
+                         })
+                         .catch(e => console.error("Error getting tensor data for audio:", e));
+                 }
+
+                 /* Update the masterLevel AudioParam based on the state vector */
+                 const levelParam = this.audioWorkletNode.parameters?.get('masterLevel');
+                 if(levelParam && audioContext?.currentTime !== undefined) {
+                     const masterVolIndex = featureExtractor?.indices?.masterVol; /* Use feature extractor's index map */
+                     if (masterVolIndex !== undefined && masterVolIndex >= 0 && masterVolIndex < STATE_VECTOR_SIZE) {
+                         stateVectorTensor.slice([0, masterVolIndex], [1, 1]).data()
+                             .then(data => {
+                                 // <<< CHANGE: Updated gain mapping -> Higher base, wider range >>>
+                                 const targetLevel = clamp( ( (data[0] !== undefined ? data[0] : 0.8) * 1.6 + 0.3 ) * 1.5 , 0.0, 2.8); /* Maps state[0..1] to approx gain [0.45 .. 2.85] */
+                                 /* Use linearRamp for smoother transitions */
+                                 levelParam.linearRampToValueAtTime(targetLevel, audioContext.currentTime + 0.05); /* Short ramp time */
+                             })
+                             .catch(e => console.error("Error reading gain state for audio param:", e));
+                     } else {
+                         /* console.warn(`Master volume index ${masterVolIndex} invalid.`); // Avoid log spam */
+                     }
+                 }
+             }
+
+             getMicrophoneInput() {
+                 if(!this.isInitialized || !analyserNode || !currentInputState.mic.fft || audioContext?.state !=='running' || !currentInputState.mic.available){
+                     currentInputState.mic.fft.fill(-140); /* Reset FFT data if unavailable */
+                     return{level:0, fft:currentInputState.mic.fft, available:false, rhythmPeak:0, rhythmTempo:0};
+                 }
+                 analyserNode.getFloatFrequencyData(currentInputState.mic.fft); /* Get current frequency data */
+
+                 /* Calculate RMS level (simple volume) */
+                 let sumSquares = 0; let count = 0;
+                 const len = analyserNode.frequencyBinCount;
+                 for(let i=0; i<len; i++){
+                     const dB = currentInputState.mic.fft[i];
+                     if(isFinite(dB) && dB > -100){ /* Ignore very low values */
+                         sumSquares += Math.pow(10, dB / 10); /* Convert dB to power */
+                         count++;
+                     } else {
+                         currentInputState.mic.fft[i] = -140; /* Floor invalid values */
+                     }
+                 }
+                 let rmsPower = count > 0 ? sumSquares / count : 0;
+                 currentInputState.mic.level = clamp(Math.sqrt(rmsPower) * 9.0, 0, 1); /* Convert power to amplitude-like level (adjust multiplier empirically) */
+
+                 /* Analyze rhythm */
+                 const micRhythm = analyzeRhythm(currentInputState.mic.fft, audioContext.sampleRate, MIC_FFT_SIZE);
+                 currentInputState.mic.rhythmPeak = micRhythm.peak;
+                 currentInputState.mic.rhythmTempo = micRhythm.tempo;
+
+                 return {
+                     level: currentInputState.mic.level,
+                     fft: currentInputState.mic.fft,
+                     available: true,
+                     rhythmPeak: micRhythm.peak,
+                     rhythmTempo: micRhythm.tempo
+                 };
+             }
+
+             async setupMicrophone() {
+                 /* Only setup if initialized, context running, analyser exists, and not already setup */
+                 if(this.micStreamSource || !this.isInitialized || !audioContext || audioContext.state !== 'running' || !analyserNode){
+                     return;
+                 }
+                 console.log("Requesting microphone access...");
+                 try{
+                     const stream = await navigator.mediaDevices.getUserMedia({
+                         audio:{
+                             /* Try disabling processing for raw input, might not be supported everywhere */
+                             echoCancellation: false, noiseSuppression: false, autoGainControl: false
+                         },
+                         video:false
+                     });
+                     this.micStreamSource = audioContext.createMediaStreamSource(stream);
+                     this.micStreamSource.connect(analyserNode); /* Connect mic to analyser */
+                     console.log("Microphone connected to analyser.");
+                     currentInputState.mic.available = true;
+                     /* Ensure FFT buffer size matches analyser node setting after connection */
+                     if(currentInputState.mic.fft.length !== analyserNode.frequencyBinCount){
+                         currentInputState.mic.fft = new Float32Array(analyserNode.frequencyBinCount);
+                         console.log("Mic FFT buffer resized to:", analyserNode.frequencyBinCount);
+                     }
+                     /* Now that mic is likely granted, try initializing speech recognition again if needed */
+                     speechController?.requestPermissionAndInit();
+                 } catch(err){
+                     console.error("Microphone access denied or failed:", err);
+                     showWarning("Mic Disabled/Denied.", 5000);
+                     currentInputState.mic.available = false;
+                     currentInputState.mic.fft.fill(-140); /* Clear FFT data */
+                     /* Still attempt speech init - it might use a different internal path or fail gracefully */
+                     speechController?.requestPermissionAndInit();
+                 }
+             }
+        }
+
+        // --- Input Handling ---
+        function setupInputListeners() {
+            const canvas = document.getElementById('renderCanvas');
+            const resetButton = document.getElementById('resetButton'); /* Hidden button for programmatic reset */
+
+            /* --- Pointer (Mouse/Touch) Handlers --- */
+            const handlePointerMove = (e) => {
+                const x = clamp(e.clientX / window.innerWidth, 0, 1);
+                const y = 1.0 - clamp(e.clientY / window.innerHeight, 0, 1); /* Invert Y */
+                currentInputState.touch.dx = x - currentInputState.touch.lastX;
+                currentInputState.touch.dy = y - currentInputState.touch.lastY;
+                currentInputState.touch.x = x;
+                currentInputState.touch.y = y;
+                currentInputState.touch.lastX = x;
+                currentInputState.touch.lastY = y;
+                /* Use pressure if available (touch), default to 1 if active */
+                currentInputState.touch.pressure = (e.pressure !== undefined && e.pointerType === 'touch') ? e.pressure : (currentInputState.touch.active ? 1.0 : 0);
+                if (currentInputState.touch.active) { e.preventDefault(); } /* Prevent scrolling while dragging */
+            };
+
+            const handlePointerDown = (e) => {
+                e.preventDefault(); /* Prevent default actions like text selection */
+                const now = performance.now();
+
+                /* Check for Reset Gesture: Second tap after long press */
+                if (resetGestureState.longPressDetected && (now - resetGestureState.longPressReleaseTime < RESET_SECOND_TAP_WINDOW_MS)) {
+                    console.log("Reset Gesture Confirmed!");
+                    showWarning("Resetting State...", 1500);
+                    resetButton.click(); /* Trigger programmatic reset */
+                    /* Clear gesture state immediately */
+                    if (resetGestureState.resetTimeout) clearTimeout(resetGestureState.resetTimeout);
+                    resetGestureState.longPressDetected = false; resetGestureState.pointerDownTime = 0; resetGestureState.longPressReleaseTime = 0;
+                    return; /* Don't process as normal touch */
+                }
+
+                /* Normal touch start */
+                currentInputState.touch.active = true;
+                currentInputState.touch.dx = 0; currentInputState.touch.dy = 0;
+                currentInputState.touch.lastX = clamp(e.clientX / window.innerWidth, 0, 1);
+                currentInputState.touch.lastY = 1.0 - clamp(e.clientY / window.innerHeight, 0, 1);
+                currentInputState.touch.x = currentInputState.touch.lastX;
+                currentInputState.touch.y = currentInputState.touch.lastY;
+                handlePointerMove(e); /* Update pressure etc. */
+
+                /* --- One-time Initializations on first interaction --- */
+                if (!interactionOccurred) {
+                    audioController?.tryInitializeAudio(); /* Init AudioContext */
+                    requestMotionPermission(); /* Request Device Orientation */
+                    requestAccelerometerPermission(); /* Request Device Motion (Accelerometer) */
+                }
+                /* Try starting speech recognition on interaction if permission granted but not running */
+                 if (speechController && speechController.permissionGranted && !speechController.isListening && !speechController.isActive && !speechController.isStarting) {
+                    speechController.startListening();
+                }
+
+                /* --- Reset Gesture: Start Long Press Timer --- */
+                resetGestureState.pointerDownTime = now;
+                resetGestureState.longPressDetected = false;
+                resetGestureState.longPressReleaseTime = 0;
+                if (resetGestureState.resetTimeout) clearTimeout(resetGestureState.resetTimeout); /* Clear any lingering timeout */
+            };
+
+            const handlePointerUp = (e) => {
+                e.preventDefault();
+                const now = performance.now();
+
+                if (currentInputState.touch.active) {
+                    /* --- Reset Gesture: Check for Long Press --- */
+                    const pressDuration = now - resetGestureState.pointerDownTime;
+                    if (pressDuration > LONG_PRESS_DURATION_MS && resetGestureState.pointerDownTime > 0) {
+                        console.log("Long press detected. Waiting for second tap...");
+                        showWarning(`Long Press: Tap again within ${RESET_SECOND_TAP_WINDOW_MS}ms to Reset.`, RESET_SECOND_TAP_WINDOW_MS + 100);
+                        resetGestureState.longPressDetected = true;
+                        resetGestureState.longPressReleaseTime = now;
+                        /* Set a timeout to clear the long press state if no second tap occurs */
+                        if (resetGestureState.resetTimeout) clearTimeout(resetGestureState.resetTimeout);
+                        resetGestureState.resetTimeout = setTimeout(() => {
+                            if (resetGestureState.longPressDetected) {
+                                console.log("Reset gesture second tap window expired.");
+                                resetGestureState.longPressDetected = false; resetGestureState.longPressReleaseTime = 0;
+                                hideWarning(); /* Hide the "Tap again" message */
+                            }
+                        }, RESET_SECOND_TAP_WINDOW_MS);
+                    } else {
+                        /* If it wasn't a long press, clear any potential reset state */
+                        resetGestureState.longPressDetected = false; resetGestureState.longPressReleaseTime = 0;
+                        if (resetGestureState.resetTimeout) clearTimeout(resetGestureState.resetTimeout);
+                        /* Hide warning if it was showing the "tap again" message */
+                        const warnDiv = document.getElementById('warningInfo');
+                        if(warnDiv && warnDiv.textContent.includes("Tap again")) hideWarning();
+                    }
+
+                    /* Normal touch end */
+                    currentInputState.touch.active = false;
+                    currentInputState.touch.pressure = 0;
+                    currentInputState.touch.dx = 0; currentInputState.touch.dy = 0;
+                    resetGestureState.pointerDownTime = 0; /* Reset timer start time */
+                }
+            };
+
+            /* Add pointer listeners to the canvas */
+            canvas.addEventListener('pointerdown', handlePointerDown, { passive: false });
+            canvas.addEventListener('pointerup', handlePointerUp, { passive: false });
+            canvas.addEventListener('pointerleave', handlePointerUp, { passive: false }); /* Treat leaving canvas as pointer up */
+            canvas.addEventListener('pointermove', handlePointerMove, { passive: false });
+
+            /* Reset Button Listener (for programmatic trigger) */
+             resetButton.addEventListener('click', () => {
+                 console.log("Resetting state via button click (programmatic)...");
+                 speechController?.stopListening(); /* Stop speech rec if active */
+                 try {
+                     localStorage.removeItem(LOCAL_STORAGE_KEY);
+                     console.log(`Cleared localStorage for key: ${LOCAL_STORAGE_KEY}`);
+                     showWarning("State Cleared. Reloading...", 1500);
+                     /* Delay reload slightly to allow message to show */
+                     setTimeout(() => { window.location.reload(); }, 500);
+                 } catch (e) {
+                     console.error("Error clearing storage:", e);
+                     showError("Failed to clear state.");
+                 }
+             });
+
+            /* --- Motion Sensor Permissions and Listeners --- */
+            let motionListenerAdded = false;
+            const requestMotionPermission = () => {
+                if(motionListenerAdded) return; /* Don't add multiple listeners */
+                const addListener = () => {
+                    window.addEventListener('deviceorientation', handleOrientation, true); /* Use capture phase */
+                    motionListenerAdded = true;
+                    console.log("DeviceOrientation listener added.");
+                };
+                /* iOS 13+ requires permission request */
+                if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                    DeviceOrientationEvent.requestPermission()
+                        .then(state => {
+                            if (state === 'granted') { addListener(); }
+                            else { console.warn("DeviceOrientation permission denied."); currentInputState.motion.available = false; }
+                        }).catch(e => {
+                            console.error("DeviceOrientation permission request error:", e); currentInputState.motion.available = false;
+                        });
+                } else {
+                    /* Non-iOS or older versions might not need explicit permission */
+                    addListener();
+                }
+            };
+            const handleOrientation = (e) => {
+                 /* Check if data is actually available (can be null) */
+                 if (e.alpha !== null || e.beta !== null || e.gamma !== null) {
+                     currentInputState.motion.alpha = e.alpha || 0; /* Z axis rotation (compass) */
+                     currentInputState.motion.beta = e.beta || 0;  /* X axis rotation (front/back tilt) */
+                     currentInputState.motion.gamma = e.gamma || 0; /* Y axis rotation (left/right tilt) */
+                     if (!currentInputState.motion.available) {
+                         console.log("DeviceOrientation data received.");
+                         currentInputState.motion.available = true;
+                     }
+                 }
+            };
+
+            /* --- Accelerometer Permissions and Listeners --- */
+            let accelListenerAdded = false;
+            const requestAccelerometerPermission = () => {
+                 if (accelListenerAdded) return;
+                 const addListener = () => {
+                     window.addEventListener('devicemotion', handleMotion, true); /* Use capture phase */
+                     accelListenerAdded = true;
+                     console.log("DeviceMotion (Accelerometer) listener added.");
+                 };
+                 /* iOS 13+ requires permission request */
+                 if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+                     DeviceMotionEvent.requestPermission()
+                         .then(state => {
+                             if (state === 'granted') { addListener(); }
+                             else { console.warn("DeviceMotion permission denied."); currentInputState.accelerometer.available = false; }
+                         }).catch(e => {
+                             console.error("DeviceMotion permission request error:", e); currentInputState.accelerometer.available = false;
+                         });
+                 } else {
+                     addListener();
+                 }
+            };
+             const handleMotion = (event) => {
+                 const acc = event.accelerationIncludingGravity; /* Use gravity-inclusive data */
+                 if (acc && (acc.x != null || acc.y != null || acc.z != null)) {
+                     currentInputState.accelerometer.x = acc.x || 0;
+                     currentInputState.accelerometer.y = acc.y || 0;
+                     currentInputState.accelerometer.z = acc.z || 0;
+                     /* Calculate magnitude of the acceleration vector */
+                     const magnitude = Math.sqrt((acc.x || 0)**2 + (acc.y || 0)**2 + (acc.z || 0)**2);
+                     currentInputState.accelerometer.magnitude = magnitude;
+
+                     if (!currentInputState.accelerometer.available) {
+                         console.log("Accelerometer data received.");
+                         currentInputState.accelerometer.available = true;
+                         /* Initialize history buffer when data first becomes available */
+                         currentInputState.accelerometer.history = new Array(ACCEL_FFT_SIZE).fill(magnitude);
+                     }
+                     /* Update history buffer (for rhythm analysis) */
+                     const accelHistory = currentInputState.accelerometer.history;
+                     accelHistory.shift(); /* Remove oldest value */
+                     accelHistory.push(magnitude); /* Add newest value */
+                 }
+                 /* Could also use event.acceleration (without gravity) or event.rotationRate if needed */
+             };
+        }
+
+        // --- Speech Command Handling ---
+        function handleSpeechCommand(command) {
+            console.log("Executing Speech Command:", command);
+            let success = false;
+            switch (command) {
+                case 'CREATE':
+                    if (artifactManager && currentResonantState && !currentResonantState.isDisposed) {
+                        artifactManager.createArtifact(currentResonantState)
+                            .then(created => { if (created) console.log("Artifact creation triggered by voice."); else console.warn("Voice artifact creation failed."); })
+                            .catch(e => console.error("Error creating artifact via voice:", e));
+                    } else { console.warn("Cannot create artifact via voice now (system not ready?)."); }
+                    break;
+                case 'FORGET_OLDEST':
+                    success = artifactManager?.forgetOldestArtifact() ?? false;
+                    if (success) console.log("Forget oldest artifact triggered by voice."); else console.log("Forget command failed (no artifacts?).");
+                    break;
+                case 'RESET':
+                    document.getElementById('resetButton').click(); /* Trigger programmatic reset */
+                    break;
+                default:
+                    console.warn("Unknown speech command received by handler:", command);
+            }
+        }
+
+        // --- Visual Feedback Trigger ---
+        function triggerVisualFeedback(intensity = 0.5, duration = 0.1) {
+            visualFeedback.intensity = Math.max(visualFeedback.intensity, clamp(intensity, 0, 1)); /* Take max intensity if triggered rapidly */
+            visualFeedback.startTime = performance.now() / 1000.0; /* Use current time */
+            visualFeedback.duration = duration;
+            visualFeedback.active = true;
+        }
+
+        // --- Main Game Loop ---
+        let lastTimestamp = 0;
+        async function gameLoop(timestamp) {
+             requestAnimationFrame(gameLoop); /* Schedule next frame immediately */
+             const currentTime = timestamp / 1000.0; /* Convert to seconds */
+
+             /* Initial check: Don't run loop until user interacts OR state is loaded */
+             if (!interactionOccurred && !loadStateFromLocalStorage()) {
+                 /* Show initial prompt if no interaction and no saved state found */
+                 const warnDiv = document.getElementById('warningInfo');
+                 if (warnDiv && warnDiv.textContent.includes("Interact to initialize")) {
+                     /* Keep showing the initial message */
+                 }
+                 return;
+             }
+
+             /* Ensure core components are ready */
+             if (!tf.ready() || !audioController?.isInitialized || !graphicsController?.material || !currentResonantState || currentResonantState.isDisposed || !unifiedIntentVector || unifiedIntentVector.isDisposed) {
+                 /* console.log("Waiting for components..."); // Reduce log spam */
+                 return;
+             }
+
+             await tf.ready(); /* Double check TF readiness */
+
+             /* Calculate delta time, handling potential pauses/resumes */
+             const deltaTime = Math.max(0.001, Math.min(0.1, (timestamp - lastTimestamp) / 1000.0 || (1.0 / TARGET_FPS)));
+             lastTimestamp = timestamp;
+
+             /* --- Performance Monitoring & Dynamic Complexity --- */
+             frameCount++; const fpsElapsed = (timestamp - lastFpsTime) / 1000.0;
+             if (fpsElapsed >= 1.0) { /* Update FPS and complexity level once per second */
+                 currentFPS = frameCount / fpsElapsed;
+                 lastFpsTime = timestamp; frameCount = 0;
+                 /* Adjust complexity based on FPS deviation from target */
+                 const error = TARGET_FPS - currentFPS;
+                 const baseAdjustment = 0.02; /* How much to adjust per second at moderate error */
+                 /* Use tanh to scale adjustment based on error size (more sensitive to small errors, capped effect for large errors) */
+                 const errorFactor = Math.tanh(error / (TARGET_FPS * 0.2)) * 1.5;
+                 const adjustment = clamp(errorFactor * baseAdjustment, -0.08, 0.08); /* Limit adjustment rate */
+                 complexityLevel = clamp(complexityLevel + adjustment, 0.05, 1.0); /* Apply adjustment within bounds */
+             }
+
+             /* --- Input Update & Analysis --- */
+             /* Accelerometer Rhythm Analysis (at intervals) */
+             if (currentInputState.accelerometer.available && (currentTime - lastAccelTime >= ACCEL_ANALYSIS_INTERVAL_S)) {
+                 lastAccelTime = currentTime;
+                 const analysisFreq = 1.0 / ACCEL_ANALYSIS_INTERVAL_S; /* Effective sampling rate for analysis */
+                 const accelRhythm = analyzeRhythm(currentInputState.accelerometer.history, analysisFreq, ACCEL_FFT_SIZE);
+                 currentInputState.accelerometer.rhythmPeak = accelRhythm.peak;
+                 currentInputState.accelerometer.rhythmTempo = accelRhythm.tempo;
+             }
+             /* Microphone Input Update (every frame) */
+             currentInputState.mic = audioController?.getMicrophoneInput() ?? currentInputState.mic;
+
+             /* Sync Factor Calculation (Ambient vs User Rhythm) */
+             let potentialSync = 0;
+             if (currentInputState.mic.available && currentInputState.accelerometer.available) {
+                 const micPeakNorm = currentInputState.mic.rhythmPeak;
+                 const accelPeakNorm = currentInputState.accelerometer.rhythmPeak;
+                 const tempoDiff = Math.abs(currentInputState.mic.rhythmTempo - currentInputState.accelerometer.rhythmTempo);
+                 /* Similarity based on tempo difference (1 if same, 0 if >60BPM diff) */
+                 const tempoSimilarity = Math.max(0, 1.0 - tempoDiff / 60.0);
+                 /* Sync requires both to be rhythmic and tempos to align */
+                 potentialSync = micPeakNorm * accelPeakNorm * tempoSimilarity * 1.8; /* Scale factor (empirical) */
+             }
+             /* Update sync factor smoothly (exponential moving average) */
+             currentInputState.syncFactor = clamp(currentInputState.syncFactor * SYNC_DECAY + potentialSync * (1.0 - SYNC_DECAY), 0.0, 1.0);
+
+             /* --- Artifact Creation Logic --- */
+             const nowMs = Date.now();
+             if (embeddingsReady && artifactManager && (nowMs - lastArtifactCreationTime > ARTIFACT_CREATION_INTERVAL_MS)) {
+                 lastArtifactCreationTime = nowMs; /* Update time even if not created */
+                 const stateDataForStdDev = await currentResonantState.data(); /* Get current state data */
+                 /* Calculate standard deviation of state vector as a measure of state "activity" or "uniqueness" */
+                 const mean = stateDataForStdDev.reduce((a, b) => a + b, 0) / stateDataForStdDev.length;
+                 const variance = stateDataForStdDev.reduce((a, b) => a + (b - mean) ** 2, 0) / stateDataForStdDev.length;
+                 const stateStdDev = Math.sqrt(variance);
+                 /* Combine mic/accel rhythm peaks and state deviation for overall activity level */
+                 const activityLevel = currentInputState.mic.rhythmPeak * 0.4 + currentInputState.accelerometer.rhythmPeak * 0.4 + stateStdDev * 2.5;
+                 /* Boost thresholds slightly based on sync factor (more likely to capture when synced) */
+                 const syncBoost = 1.0 + (currentInputState.syncFactor - 0.5) * 0.4;
+                 const minThresh = ARTIFACT_CREATION_ACTIVITY_THRESHOLD_MIN * syncBoost;
+                 const maxThresh = ARTIFACT_CREATION_ACTIVITY_THRESHOLD_MAX * syncBoost;
+
+                 /* Create artifact if activity is within range and space available */
+                 if (activityLevel > minThresh && activityLevel < maxThresh && artifactManager.getArtifactCount() < MAX_ARTIFACTS) {
+                     console.log(`Attempting artifact creation: Activity=${activityLevel.toFixed(2)}, Sync=${currentInputState.syncFactor.toFixed(2)} (Thresh: ${minThresh.toFixed(2)}-${maxThresh.toFixed(2)})`);
+                     artifactManager.createArtifact(currentResonantState)
+                         .then(created => {
+                             if (created && currentInputState.syncFactor > SYNC_THRESHOLD) {
+                                 console.log("Artifact created during high ambient sync!");
+                                 triggerVisualFeedback(0.8, 0.3); /* Stronger feedback for synced creation */
+                             }
+                         })
+                         .catch(e => console.error("Error during async artifact creation:", e));
+                 }
+             }
+
+             // Find relevant artifacts for current state
+             activeArtifactInfo = await artifactManager.findRelevantArtifacts(
+                 currentResonantState,
+                 ARTIFACT_SIMILARITY_THRESHOLD,
+                 MAX_ACTIVE_ARTIFACTS_LOGIC
+             );
+
+             // --- Core NN Prediction Step ---
+             let nextStateTensor = null;
+             let nextIntentTensor = null;
+             let frameMemoryInfo = null;
+             try {
+                 /* Wrap NN processing in tf.tidy to manage memory */
+                 const result = tf.tidy(() => {
+                     /* 1. Process raw inputs into unified intent vector */
+                     const intentTensor = inputProcessorModel.process(currentInputState);
+                     /* 2. Predict next state based on intent, current state, and artifacts */
+                     const stateTensor = coreLogicModel.predict(
+                         intentTensor,
+                         currentResonantState,
+                         activeArtifactInfo.stateArrays,
+                         activeArtifactInfo.similarities
+                     );
+                     /* 3. Get memory info within the tidy scope */
+                     const memInfo = tf.memory();
+                     /* Return tensors to keep and memory info */
+                     return { newState: stateTensor, newIntent: intentTensor, memory: memInfo };
+                 });
+
+                 /* Dispose old tensors */
+                 tf.dispose(currentResonantState);
+                 tf.dispose(unifiedIntentVector);
+                 /* Keep the newly created tensors */
+                 currentResonantState = tf.keep(result.newState);
+                 unifiedIntentVector = tf.keep(result.newIntent);
+                 memoryInfo = result.memory; /* Update global memory info */
+
+             } catch (e) {
+                 console.error("!!! Game Loop TF Tidy Error:", e);
+                 memoryInfo = tf.memory(); /* Get memory info even on error */
+                 /* Attempt recovery if tensors became invalid */
+                 if (!currentResonantState || currentResonantState.isDisposed) {
+                     console.error("CRITICAL: currentResonantState invalid post-tidy! Resetting.");
+                     tf.dispose(currentResonantState); /* Ensure disposal if somehow exists but disposed */
+                     currentResonantState = tf.keep(tf.fill([1, STATE_VECTOR_SIZE], 0.5)); /* Reset to default */
+                 }
+                 if (!unifiedIntentVector || unifiedIntentVector.isDisposed) {
+                     console.error("CRITICAL: unifiedIntentVector invalid post-tidy! Resetting.");
+                     tf.dispose(unifiedIntentVector);
+                     unifiedIntentVector = tf.keep(tf.zeros([1, INPUT_VECTOR_SIZE])); /* Reset to default */
+                 }
+                 /* Skip updating audio/visuals this frame if NN failed */
+                 nextStateTensor = null; nextIntentTensor = null;
+                 currentStateArray = new Array(STATE_VECTOR_SIZE).fill(0.5); /* Use default array for visuals if error */
+             }
+
+             // --- Get State Data for Audio/Visuals ---
+              let currentStateArray = null;
+              if (currentResonantState && !currentResonantState.isDisposed) {
+                  try {
+                      currentStateArray = await currentResonantState.data(); /* Async data retrieval */
+                  } catch (dataError) {
+                      console.error("Error getting state tensor data after tidy:", dataError);
+                      currentStateArray = new Array(STATE_VECTOR_SIZE).fill(0.5); /* Fallback on error */
+                  }
+              } else {
+                  currentStateArray = new Array(STATE_VECTOR_SIZE).fill(0.5); /* Fallback if tensor is invalid */
+                  console.warn("Using fallback state array post-tidy.");
+              }
+
+
+             // --- Visual Feedback Update ---
+             let currentFeedbackIntensity = 0;
+             if (visualFeedback.active) {
+                 const elapsed = currentTime - visualFeedback.startTime;
+                 if (elapsed < visualFeedback.duration) {
+                     const progress = elapsed / visualFeedback.duration;
+                     currentFeedbackIntensity = visualFeedback.intensity * (1.0 - progress) * (1.0 - progress); /* Fade out quadratically */
+                 } else {
+                     visualFeedback.active = false; visualFeedback.intensity = 0; /* Deactivate */
+                 }
+             }
+
+             // --- Update Graphics and Audio ---
+             graphicsController?.update(currentStateArray, currentTime, activeArtifactInfo, complexityLevel, currentInputState.syncFactor, currentFeedbackIntensity);
+             if (currentResonantState && !currentResonantState.isDisposed) {
+                 audioController?.update(currentResonantState, complexityLevel);
+             }
+
+             // --- Debug Info Update ---
+             if (USE_DEBUG && document.getElementById('debugInfo')) {
+                 const d = document.getElementById('debugInfo');
+                 const { numBytes, numTensors } = memoryInfo;
+                 const artCnt = artifactManager?.getArtifactCount() ?? 0;
+                 const shArtIds = activeArtifactInfo.ids.slice(0, MAX_ARTIFACTS_SHADER).join(',') || 'n';
+                 const mtn = currentInputState.motion.available ? `${currentInputState.motion.beta.toFixed(0)},${currentInputState.motion.gamma.toFixed(0)}`:'N';
+                 const mic = currentInputState.mic.available ? `${currentInputState.mic.level.toFixed(2)}[${currentInputState.mic.rhythmPeak.toFixed(1)},${currentInputState.mic.rhythmTempo.toFixed(0)}]`:'N';
+                 const acc = currentInputState.accelerometer.available ? `${currentInputState.accelerometer.magnitude.toFixed(1)}[${currentInputState.accelerometer.rhythmPeak.toFixed(1)},${currentInputState.accelerometer.rhythmTempo.toFixed(0)}]`:'N';
+                 const be = tf.getBackend()||'N';
+                 const speechStat = speechController ? speechController.updateStatus()||'Idle' : 'N/A'; /* Get current status string */
+                 d.textContent = `V${VERSION}|FPS:${currentFPS.toFixed(1)}|Cmplx:${complexityLevel.toFixed(2)}|Sync:${currentInputState.syncFactor.toFixed(2)}|Ctx:${audioContext?.state??'N'}|Tch:${currentInputState.touch.active?'A':'I'}|Mtn:${mtn}|Acc:${acc}|Mic:${mic}|Speech:${speechStat}|Art:${artCnt}(S:${shArtIds}/${MAX_ARTIFACTS_SHADER})|Emb:${embeddingsReady?'OK':'No'}|TF[${be}]:${numTensors}t/${(numBytes/1e6).toFixed(1)}MB`;
+             }
+        }
+
+        // --- Persistence ---
+        function saveStateToLocalStorage() {
+             /* Only save if user has interacted, state is valid, and artifacts are managed */
+             if (!interactionOccurred || !currentResonantState || currentResonantState.isDisposed || !artifactManager || !embeddingsReady) {
+                 console.log("Save state skipped (conditions not met).");
+                 return;
+             }
+             console.log("Saving state to localStorage...");
+             try {
+                 /* Use .data() which is async and returns a promise */
+                 currentResonantState.data().then(stateArray => {
+                     /* Prepare artifacts for JSON serialization */
+                     const serializableArts = artifactManager.artifacts.map(art => ({
+                         id: art.id,
+                         stateVector: Array.from(art.stateVector), /* Ensure array format */
+                         featureTags: art.featureTags,
+                         embedding: Array.from(art.embedding), /* Ensure array format */
+                         timestamp: art.timestamp
+                     }));
+
+                     const stateToSave = {
+                         resonantState: Array.from(stateArray), /* Ensure array format */
+                         artifacts: serializableArts,
+                         timestamp: Date.now(),
+                         version: VERSION /* Store version for compatibility checks */
+                     };
+                     const stateJSON = JSON.stringify(stateToSave);
+                     localStorage.setItem(LOCAL_STORAGE_KEY, stateJSON);
+                     console.log(`State (${(stateJSON.length / 1024).toFixed(1)} KB) saved.`);
+
+                 }).catch(e => {
+                     console.error("Error getting tensor data for saving state:", e);
+                     showWarning("Failed to get data for save.", 3000);
+                 });
+
+             } catch (e) {
+                 console.error("Save state error:", e);
+                 /* Handle specific errors like quota exceeded */
+                 if (e.name === 'QuotaExceededError') {
+                     showError("Save Failed: Storage full!");
+                     /* Attempt to prune oldest artifact if storage is full */
+                     if(artifactManager?.getArtifactCount() > 0) {
+                         console.warn("Attempting prune oldest artifact due to QuotaExceededError...");
+                         artifactManager.forgetOldestArtifact();
+                     }
+                 } else {
+                     showWarning("Could not save state.", 3000);
+                 }
+             }
+         }
+
+        function loadStateFromLocalStorage() {
+             let stateLoaded = false;
+            try {
+                const stateJSON = localStorage.getItem(LOCAL_STORAGE_KEY);
+                if (!stateJSON) {
+                    console.log(`No saved state found for key '${LOCAL_STORAGE_KEY}'.`);
+                    return false; /* No state found, return false */
+                }
+
+                console.log(`Loading state for key '${LOCAL_STORAGE_KEY}'...`);
+                const savedState = JSON.parse(stateJSON);
+
+                /* --- Validation Checks --- */
+                if (!savedState || typeof savedState !== 'object') throw new Error("Invalid saved state format (not an object).");
+                if (savedState.version !== VERSION) { console.warn(`Saved state version mismatch (Need v${VERSION}, got v${savedState.version}). Clearing.`); throw new Error("Version mismatch."); }
+                if (!Array.isArray(savedState.resonantState) || savedState.resonantState.length !== STATE_VECTOR_SIZE) throw new Error("Invalid resonantState format or size.");
+                if (!Array.isArray(savedState.artifacts)) throw new Error("Invalid artifacts format.");
+                /* Optional: Add more checks for artifact structure if needed */
+
+                /* --- Restore State --- */
+                tf.tidy(() => {
+                    const loadedTensor = tf.tensor1d(savedState.resonantState).expandDims(0);
+                    tf.dispose(currentResonantState); /* Dispose existing tensor first */
+                    currentResonantState = loadedTensor; /* Assign new tensor */
+                });
+                tf.keep(currentResonantState); /* Keep the restored tensor */
+                console.log("Restored resonant state tensor.");
+
+                /* Prepare artifacts for loading (ensure correct types) */
+                const artifactsToLoad = savedState.artifacts.map(art => ({
+                     ...art,
+                     /* Ensure embedding and stateVector are arrays (handle potential issues from older saves) */
+                     embedding: Array.isArray(art.embedding) ? art.embedding : Array.from(art.embedding || []),
+                     stateVector: Array.isArray(art.stateVector) ? art.stateVector : Array.from(art.stateVector || [])
+                 }));
+
+                 /* Defer setting artifacts until manager and embeddings are ready */
+                 const checkAndSetArtifacts = () => {
+                     if (artifactManager && embeddingsReady) {
+                         artifactManager.setArtifacts(artifactsToLoad);
+                         showWarning("Loaded previous state.", 3000);
+                         console.log(`Artifacts loaded from save point: ${new Date(savedState.timestamp).toLocaleString()}`);
+                     } else {
+                         /* Retry if components not ready yet */
+                         setTimeout(checkAndSetArtifacts, 200);
+                     }
+                 };
+                 setTimeout(checkAndSetArtifacts, 100); /* Start check shortly after load attempt */
+
+                interactionOccurred = true; /* Mark as interacted since state was loaded */
+                stateLoaded = true; /* Signal successful load start */
+
+            } catch (e) {
+                console.error("Load state error:", e);
+                showError("Failed to load state. Starting fresh.");
+                try { localStorage.removeItem(LOCAL_STORAGE_KEY); } /* Attempt to remove corrupted item */
+                catch (removeError) { console.error("Error removing corrupted state:", removeError); }
+                stateLoaded = false; /* Signal load failure */
+            }
+            return stateLoaded; /* Return whether loading process initiated successfully */
+        }
+
+
+        // --- Initialization ---
+        async function initialize() {
+            console.log(`Initializing Infundibulum Echoes v${VERSION}`);
+            const warningDiv = document.getElementById('warningInfo');
+            if (USE_DEBUG) document.getElementById('debugInfo').style.display = 'block';
+
+            /* 1. Graphics Setup (must happen first for context) */
+            try {
+                 graphicsController = new GraphicsController(document.getElementById('renderCanvas'));
+            } catch(e) {
+                showError("Fatal: Graphics Controller Init Failed. Check console.");
+                console.error("Graphics Controller critical initialization failure:", e);
+                return; /* Stop initialization if graphics fail */
+            }
+
+            /* 2. Audio Setup */
+            audioController = new AudioController(); /* Instantiate, but full init needs interaction */
+
+            /* 3. TensorFlow.js Setup */
+            try {
+                await tf.ready();
+                const targetBackend = HIGH_PERFORMANCE_MODE ? 'webgl' : 'webgl'; /* Prefer WebGL */
+                await tf.setBackend(targetBackend).catch(async (be) => {
+                    console.warn(`Failed setting preferred backend ${targetBackend}, trying webgl fallback...`, be);
+                    await tf.setBackend('webgl'); /* Explicitly try WebGL if preferred failed */
+                });
+                const currentBackend = tf.getBackend();
+                console.log(`TF Ready. Backend: ${currentBackend}`);
+                if (currentBackend === 'webgl') {
+                    /* Minor WebGL backend tweaks - may or may not improve performance */
+                    tf.env().set('WEBGL_CONV_IM2COL', false);
+                    tf.env().set('WEBGL_PACK', false);
+                } else if (currentBackend !== 'wasm' && currentBackend !== 'cpu') {
+                     console.warn(`Unexpected TF Backend: ${currentBackend}`);
+                }
+                 console.log("TF backend configured.");
+            } catch (err) {
+                showError("Fatal: TF.js Backend Init Failed. Check console.");
+                console.error("TensorFlow.js setup critical failure:", err);
+                return; /* Stop initialization if TF fails */
+            }
+
+            /* 4. Instantiate Core Logic Components */
+            inputProcessorModel = new PlaceholderInputProcessor(null, INPUT_VECTOR_SIZE);
+            coreLogicModel = new PlaceholderCoreLogic(STATE_VECTOR_SIZE);
+            featureExtractor = new FeatureExtractor(STATE_VECTOR_SIZE);
+            embeddingProvider = new EmbeddingProvider(EMBEDDING_MODEL_NAME);
+            artifactManager = new ArtifactManager(MAX_ARTIFACTS, STATE_VECTOR_SIZE, EMBEDDING_DIM, featureExtractor, embeddingProvider);
+            speechController = new SpeechRecognitionController();
+            speechController.setCommandCallback(handleSpeechCommand);
+            console.log("Logic/RAG/Speech components instantiated.");
+
+            /* 5. Load State or Initialize Defaults */
+            const loadedSuccessfully = loadStateFromLocalStorage(); /* Attempt to load saved state */
+            if (!loadedSuccessfully) {
+                console.log("Initialized with default state (no valid save found).");
+                warningDiv.textContent = `Ready (v${VERSION}). Interact or Speak. Long Press + Tap to Reset.`;
+                 /* Ensure default tensors are kept if not loaded */
+                tf.keep(currentResonantState);
+                tf.keep(unifiedIntentVector);
+            } else {
+                console.log("State load initiated successfully.");
+                warningDiv.textContent = `Loading State (v${VERSION})...`; /* Show loading message */
+            }
+
+            /* 6. Background Initialization (Embeddings) */
+            /* Start loading the embedding model asynchronously */
+             embeddingProvider.init().catch(e => console.error("Background Embedding Model init error:", e));
+
+            /* 7. Setup Input Listeners */
+            setupInputListeners();
+
+            /* 8. Setup Resize Listener */
+            window.addEventListener('resize', () => { graphicsController?.resize(); }, { passive: true });
+
+            /* 9. Setup Visibility Change / Page Hide Listeners */
+            document.addEventListener('visibilitychange', () => {
+                if (document.hidden) {
+                    saveStateToLocalStorage(); /* Save state when tab becomes hidden */
+                    speechController?.stopListening(); /* Stop listening when hidden */
+                } else {
+                    /* Try starting speech again when visible if permission was granted */
+                    if(speechController?.permissionGranted && !speechController.isListening && !speechController.isActive) {
+                         speechController.startListening();
+                     }
+                }
+            });
+            /* Also save state when page is unloaded/hidden completely */
+            window.addEventListener('pagehide', saveStateToLocalStorage);
+
+
+            /* Final check for renderer validity before starting loop */
+            if (!renderer) {
+                showError("Initialization Error: Renderer became invalid.");
+                return;
+            }
+
+            console.log("Initialization complete. Starting game loop...");
+            lastTimestamp = performance.now(); /* Initialize timestamps for loop */
+            lastFpsTime = lastTimestamp;
+            lastAccelTime = lastTimestamp / 1000.0; /* Initialize accel analysis time */
+            requestAnimationFrame(gameLoop); /* Start the main loop */
+        }
+
+        // --- Utilities ---
+        function hasRTX3060LevelGPU() {
+            /* Basic check based on unmasked renderer string - not foolproof! */
+            try{
+                const c=document.createElement('canvas');
+                /* Request context with failIfMajorPerformanceCaveat to potentially filter out weak integrated GPUs early */
+                const gl=c.getContext('webgl',{failIfMajorPerformanceCaveat:true}) || c.getContext('experimental-webgl',{failIfMajorPerformanceCaveat:true});
+                if(!gl) return false; /* No WebGL support at all */
+                const dbg=gl.getExtension('WEBGL_debug_renderer_info');
+                if(dbg){
+                    const r=gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL)?.toLowerCase();
+                    if(r){
+                        console.log("GPU Renderer:", r);
+                        /* Keywords for potentially higher-end GPUs (adjust as needed) */
+                        if(r.includes('nvidia')){
+                            /* Includes most RTX series, higher GTX (1070+), Titan, newer Quadro */
+                             if(r.includes('rtx') || r.includes(' 16') || r.includes(' 1070') || r.includes(' 1080') || r.includes('titan') || (r.includes('quadro') && !r.includes(' k') && !r.includes(' 600') && !r.includes(' 410'))) return true;
+                         }
+                        if(r.includes('amd')){
+                            /* Includes RX 5xxx+, Vega, Radeon Pro W series */
+                             if(r.includes('radeon rx 5') || r.includes('radeon rx 6') || r.includes('radeon rx 7') || r.includes('vega') || r.includes(' vii') || r.includes(' pro w') || r.includes('firepro w')) return true;
+                         }
+                         /* Apple Silicon is generally performant */
+                        if(r.includes('apple') && (r.includes('m1') || r.includes('m2') || r.includes('m3'))) return true;
+                        /* Newer Intel integrated GPUs might be okay */
+                        if(r.includes('intel') && (r.includes('iris xe') || r.includes('arc'))) return true;
+                    }
+                }
+            } catch(e){ console.warn("GPU check failed:", e); }
+            console.log("GPU check: Assuming standard performance.");
+            return false; /* Default to standard performance */
+        }
+        function showError(msg) {
+            const w=document.getElementById('warningInfo');
+            if(w){
+                w.textContent=`FATAL: ${msg}`; w.style.color='red'; w.style.display='block';
+                /* Clear any existing warning timeout */
+                if(audioController?.warningTimeout) clearTimeout(audioController.warningTimeout);
+                audioController.audioWarningDisplayed = true; /* Mark warning as displayed */
+            }
+            console.error(`FATAL: ${msg}`);
+        }
+        /* Use audio controller's warning methods for consistency */
+        function showWarning(msg, dur=5000) { audioController?.showWarning(msg, dur); }
+        function hideWarning() { audioController?.hideWarning(); }
+        function showLoading(show, msg="") {
+             const l=document.getElementById('loadingInfo'); const p=document.getElementById('loadingProgress');
+             if(l){
+                 l.style.display=show?'flex':'none';
+                 l.style.flexDirection='column'; l.style.alignItems='center'; l.style.justifyContent='center';
+                 if(show && p){
+                     l.childNodes[0].nodeValue = msg + '\n'; /* Set main message text node */
+                     p.textContent=''; /* Clear progress details initially */
+                 }
+             }
+        }
+        function clamp(v,min,max){return Math.max(min,Math.min(v,max));}
+        function fract(n){return n-Math.floor(n);}
+
+        // --- Entry Point ---
+        /* Ensure core libraries are loaded before initializing */
+        if (typeof tf !== 'undefined' && typeof THREE !== 'undefined') {
+            /* Use setTimeout to allow the browser to finish rendering the initial page elements */
+            setTimeout(initialize, 50);
+        } else {
+            showError("Fatal: Core libraries (TF/Three) failed load.");
+            console.error("TF.js or Three.js was not found. Check network connection and script tags.");
+            const d = document.getElementById('loadingInfo');
+            if (d) { /* Show error in loading div if possible */
+                d.innerHTML = "ERROR: Core library failed.<br>Refresh/check console.";
+                d.style.display = 'flex'; d.style.color = 'red';
+            }
+        }
+
+    </script>
+</body>
+</html>
