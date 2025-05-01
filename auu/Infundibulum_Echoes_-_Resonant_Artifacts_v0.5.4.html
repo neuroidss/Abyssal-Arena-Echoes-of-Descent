@@ -43,7 +43,7 @@
         const USE_DEBUG = true;
         const TARGET_FPS = 55; // Target FPS for dynamic complexity adjustment
         const HIGH_PERFORMANCE_MODE = hasRTX3060LevelGPU(); // Check for higher-end GPU
-        const STATE_VECTOR_SIZE = HIGH_PERFORMANCE_MODE ? 128 : 64; // Size of the core resonant state vector
+        const STATE_VECTOR_SIZE =  128; // Size of the core resonant state vector
         const INPUT_VECTOR_SIZE = 128; // Size of the unified intent vector from InputProcessor
         const EMBEDDING_DIM = 384; // Dimension of embeddings from Xenova/all-MiniLM-L6-v2
         const MAX_ARTIFACTS = 18; // Max number of artifacts stored in memory
