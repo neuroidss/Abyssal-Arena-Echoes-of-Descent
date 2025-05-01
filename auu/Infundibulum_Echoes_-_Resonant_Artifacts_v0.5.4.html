@@ -502,6 +502,8 @@
                 renderer.setSize(window.innerWidth, window.innerHeight);
                 renderer.setPixelRatio(Math.min(window.devicePixelRatio, HIGH_PERFORMANCE_MODE ? 2 : 1.2)); // Limit pixel ratio
 
+                this.maxArtifactsShader = this.detectMaxUniformCapacity();
+
                 const geometry = new THREE.PlaneGeometry(2, 2);
                 this.material = new THREE.ShaderMaterial({
                     uniforms: {
@@ -621,6 +623,21 @@
                      }
                  } catch (e) { console.warn("Could not get WebGL uniform limits."); }
             }
+            
+              detectMaxUniformCapacity() {
+    const gl = renderer.getContext();
+    const maxUniformVectors = gl.getParameter(gl.MAX_FRAGMENT_UNIFORM_VECTORS);
+    console.log(`Max uniform vectors: ${maxUniformVectors}`);
+    
+    // Each vec4 holds 4 floats
+    const maxFloats = maxUniformVectors * 4;
+    const requiredPerArtifact = STATE_VECTOR_SIZE + 1; // State + similarity
+    
+    // Calculate how many artifacts we can fit
+    const baseUniforms = 10; // Other uniforms in your shader
+    const available = maxFloats - baseUniforms - STATE_VECTOR_SIZE;
+    return Math.max(1, Math.floor(available / requiredPerArtifact));
+  }
 
             // Helper to create uniform arrays sized for MAX_ARTIFACTS_SHADER
             _createArtifactUniformArray() {
