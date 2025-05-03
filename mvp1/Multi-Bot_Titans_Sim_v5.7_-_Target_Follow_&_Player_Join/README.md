@@ -5,7 +5,7 @@
 This project simulates a multi-agent environment where different types of bots compete to claim goals while navigating obstacles and interacting with each other (punching to freeze). It features:
 
 *   **Hardcoded Bots:** Operate based on predefined rules (pathfinding, basic interaction logic).
-*   **Learning Bots:** Utilize a backend PyTorch implementation inspired by the "Titans: Learning to Memorize at Test Time" paper. They learn online based on prediction anomalies within their internal Neural Memory module.
+*   **Learning Bots:** Utilize a backend PyTorch implementation inspired by the "[Titans: Learning to Memorize at Test Time](https://github.com/neuroidss/Abyssal-Arena-Echoes-of-Descent/blob/main/mvp1/Multi-Bot_Titans_Sim_v5.7_-_Target_Follow_%26_Player_Join/2501.00663v1.pdf)" paper. They learn online based on prediction anomalies within their internal Neural Memory module.
 *   **Player Control:** Users can join the simulation and take control of an available Learning Bot via a web interface, setting targets by clicking/tapping the grid.
 *   **GPU Acceleration:** The PyTorch backend leverages CUDA GPUs if available for accelerating the Learning Bots' neural network computations.
 *   **Web Interface:** A Flask+SocketIO server provides a real-time web interface (index.html) for visualization, control, and parameter tuning.
