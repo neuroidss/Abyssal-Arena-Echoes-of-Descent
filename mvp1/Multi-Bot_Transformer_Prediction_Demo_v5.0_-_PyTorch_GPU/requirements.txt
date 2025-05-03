@@ -1,0 +1,6 @@
+fastapi
+uvicorn[standard]
+torch # Make sure to install the correct version for your CUDA setup (e.g., from pytorch.org)
+numpy
+einops
+

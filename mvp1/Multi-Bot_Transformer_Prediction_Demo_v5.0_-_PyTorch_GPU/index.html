@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Multi-Bot Transformer Prediction Demo (v5.0 - PyTorch GPU)</title>
+    <style>
+        /* --- CSS Styles (Largely unchanged from v4.2, minor tweaks possible) --- */
+        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; margin: 0; padding: 10px; box-sizing: border-box; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; line-height: 1.4; background-color: #f0f0f0; }
+        canvas { border: 1px solid black; margin-bottom: 10px; display: block; max-width: 100%; height: auto; touch-action: none; background-color: #fff; }
+        .main-container { display: flex; flex-direction: row; flex-wrap: wrap; align-items: flex-start; width: 100%; max-width: 1500px; justify-content: center; gap: 20px; }
+        .grid-container { flex-basis: 600px; flex-grow: 1; max-width: 800px; min-width: 300px; display: flex; justify-content: center; align-items: center; }
+        .controls-and-info { display: flex; flex-direction: column; flex-basis: 450px; flex-grow: 1; min-width: 320px; max-width: 600px; background-color: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        .simulation-controls button, .param-controls button { margin: 5px 3px; padding: 8px 12px; cursor: pointer; border: none; border-radius: 4px; background-color: #3498db; color: white; font-size: 0.9em; }
+        .simulation-controls button:hover, .param-controls button:hover { background-color: #2980b9; }
+        .simulation-controls button:disabled, .param-controls button:disabled { background-color: #bdc3c7; cursor: not-allowed; }
+        #stopButton { background-color: #e74c3c; }
+        #stopButton:hover { background-color: #c0392b; }
+        #resetRoundButton, #resetFullButton { background-color: #f39c12; }
+        #resetRoundButton:hover, #resetFullButton:hover { background-color: #e67e22; }
+        #saveParamsButton, #loadParamsButton, #resetParamsButton { background-color: #2ecc71; font-size: 0.85em; padding: 6px 10px;}
+        #saveParamsButton:hover, #loadParamsButton:hover, #resetParamsButton:hover { background-color: #27ae60; }
+
+        .parameters { border: 1px solid #ccc; padding: 15px; margin-bottom: 15px; background-color: #f9f9f9; border-radius: 5px; }
+        .parameters h3 { margin-top: 0; margin-bottom: 15px; font-size: 1.1em; border-bottom: 1px solid #eee; padding-bottom: 5px; }
+        .parameters div.param-item { margin-bottom: 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 5px 10px; font-size: 0.9em; }
+        .parameters label { display: inline-block; min-width: 160px; font-weight: 500; flex-shrink: 0; }
+        .parameters input[type=number], .parameters input[type=text] { width: 70px; padding: 5px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 3px; font-size: 1em; }
+        .parameters .tooltip { display: inline-block; background-color: #bbb; border-radius: 50%; width: 16px; height: 16px; text-align: center; line-height: 16px; font-size: 12px; color: white; font-weight: bold; vertical-align: middle; cursor: help; position: relative; margin-left: 3px; }
+        .parameters .reset-needed-hint { font-style: italic; font-size: 0.8em; color: #e67e22; margin-left: 5px; display: none; white-space: nowrap; }
+        .parameters div.needs-reset-all .reset-needed-hint,
+        .parameters div.needs-new-round .reset-needed-hint { display: inline; }
+        .tooltip .tooltiptext { visibility: hidden; width: 220px; background-color: black; color: #fff; text-align: center; border-radius: 6px; padding: 5px; position: absolute; z-index: 1; bottom: 125%; left: 50%; margin-left: -110px; opacity: 0; transition: opacity 0.3s; font-size: 0.85em; font-weight: normal; line-height: normal; }
+        .tooltip:hover .tooltiptext { visibility: visible; opacity: 1; }
+
+        .info { display: flex; flex-direction: column; gap: 12px; margin-top: 15px; }
+        .bot-type-info { border: 1px solid #eee; padding: 10px; font-size: 0.9em; background-color: #fdfdfd; border-radius: 4px; }
+        .bot-type-info b { display: block; margin-bottom: 5px; font-size: 1.05em;}
+        .stats { margin-top: 15px; font-weight: bold; padding: 12px; background-color: #eef; border-radius: 5px; font-size: 0.95em; line-height: 1.5; }
+        pre { background-color: #eee; padding: 5px; font-size: 0.8em; max-height: 100px; overflow-y: auto; white-space: pre-wrap; word-wrap: break-word; border: 1px solid #ddd; border-radius: 3px; }
+        .frozen-status { color: #0077cc; font-weight: bold; border: 1px dashed #0077cc; padding: 1px 3px; border-radius: 3px; display: inline-block; font-size: 0.85em; }
+        hr { width: 100%; margin: 20px 0; border: 0; border-top: 1px solid #ccc; }
+
+        .library-param-label { font-weight: bold; color: #2980b9; }
+        .needs-reset-all h3::after { content: ' (Reset All Req.)'; font-size: 0.8em; color: #e67e22; font-style: italic; margin-left: 5px;}
+        .needs-new-round h3::after { content: ' (New Round Req.)'; font-size: 0.8em; color: #e67e22; font-style: italic; margin-left: 5px;}
+        .param-group { border: 1px dashed #ddd; padding: 10px; margin-bottom: 12px; border-radius: 4px; }
+        .param-group h4 { margin-top: 0; margin-bottom: 10px; font-size: 1em; color: #555; }
+        #status, #round-info { margin-top: 8px; font-weight: bold; }
+        #status { font-size: 1.1em; }
+        #round-info { font-size: 1em; color: #555;}
+        #status.error { color: #e74c3c; } /* Style for error status */
+        #gpu-status { font-size: 0.9em; color: #555; margin-top: 5px; }
+
+        /* Ensure Tooltips work on touch */
+        .tooltip:focus .tooltiptext,
+        .tooltip:active .tooltiptext { visibility: visible; opacity: 1; }
+    </style>
+</head>
+<body>
+    <h1>Multi-Bot Transformer Prediction Demo (v5.0 - PyTorch GPU)</h1>
+    <p style="max-width: 800px; text-align: center; margin-bottom: 20px;">Bots navigate a grid to claim goals (Action 5 Req.). Learning Bots (Red) use a server-side Transformer library (PyTorch) to predict streams and learn from prediction errors (loss). Hardcoded Bots (Blue) use fixed rules. Bots can Punch (Action 4) to freeze opponents.</p>
+    <p style="font-size:0.9em; color: #e74c3c;"><i>Simulation runs on the server (GPU accelerated if available). Parameter changes may require server restart or reset actions.</i></p>
+
+    <div class="main-container">
+        <div class="grid-container">
+            <canvas id="gridCanvas"></canvas>
+        </div>
+
+        <div class="controls-and-info">
+             <div class="simulation-controls">
+                <button id="startButton" title="Start Simulation">Start</button>
+                <button id="stopButton" disabled title="Stop Simulation">Stop</button>
+                <button id="resetRoundButton" title="Start a New Round with Current Settings">New Round</button>
+                <button id="resetFullButton" title="Reset Server Environment and Learning Model">Reset All (Server)</button>
+                <div id="status">Status: Connecting...</div>
+                <div id="round-info">Round: 0</div>
+                <div id="gpu-status">GPU: Unknown</div>
+            </div>
+            <hr>
+            <div class="parameters">
+                 <h3>Simulation Parameters (Live Update = LU)</h3>
+                 <div class="param-group">
+                     <div data-param="SIMULATION_SPEED_MS" class="param-item">
+                         <label for="param-SIMULATION_SPEED_MS">Sim Speed (ms delay):</label>
+                         <input type="number" id="param-SIMULATION_SPEED_MS" min="0" max="1000" step="10">
+                         <span class="tooltip" tabindex="0">?<span class="tooltiptext">Delay between simulation steps on server. Lower is faster. 0 attempts max speed. Updates immediately (LU).</span></span>
+                     </div>
+                     <div data-param="FREEZE_DURATION" class="param-item">
+                         <label for="param-FREEZE_DURATION">Freeze Duration (steps):</label>
+                         <input type="number" id="param-FREEZE_DURATION" min="1" max="100">
+                         <span class="tooltip" tabindex="0">?<span class="tooltiptext">How long a bot stays frozen after being punched. Updates immediately (LU).</span></span>
+                     </div>
+                 </div>
+
+                 <hr>
+                 <h3 class="needs-reset-all">Environment (Reset All Req. on Server)</h3>
+                 <div class="param-group needs-reset-all">
+                     <div data-param="GRID_SIZE" class="param-item">
+                         <label for="param-GRID_SIZE">Grid Size:</label>
+                         <input type="number" id="param-GRID_SIZE" min="10"> <!-- Removed max -->
+                         <span class="tooltip" tabindex="0">?<span class="tooltiptext">Width/Height of the grid. Larger grids increase distance & complexity. Requires 'Reset All' on server.</span></span>
+                         <span class="reset-needed-hint">(Reset Req.)</span>
+                     </div>
+                     <div data-param="NUM_GOALS" class="param-item">
+                         <label for="param-NUM_GOALS">Num Goals:</label>
+                         <input type="number" id="param-NUM_GOALS" min="1"> <!-- Removed max -->
+                         <span class="tooltip" tabindex="0">?<span class="tooltiptext">Number of goals per round. More goals can change bot strategy. Requires 'Reset All' on server.</span></span>
+                         <span class="reset-needed-hint">(Reset Req.)</span>
+                     </div>
+                     <div data-param="NUM_HC_BOTS" class="param-item">
+                         <label for="param-NUM_HC_BOTS">Num Hardcoded Bots:</label>
+                         <input type="number" id="param-NUM_HC_BOTS" min="0"> <!-- Removed max -->
+                         <span class="tooltip" tabindex="0">?<span class="tooltiptext">Number of blue (rule-based) bots. Requires 'Reset All' on server.</span></span>
+                         <span class="reset-needed-hint">(Reset Req.)</span>
+                     </div>
+                     <div data-param="NUM_LEARNING_BOTS" class="param-item">
+                         <label for="param-NUM_LEARNING_BOTS">Num Learning Bots:</label>
+                         <input type="number" id="param-NUM_LEARNING_BOTS" min="0"> <!-- Removed max -->
+                         <span class="tooltip" tabindex="0">?<span class="tooltiptext">Number of red (learning) bots. Uses server Transformer library. Requires 'Reset All' on server.</span></span>
+                         <span class="reset-needed-hint">(Reset Req.)</span>
+                     </div>
+                 </div>
+
+                 <hr>
+                 <h3 class="needs-new-round">Round Setup (New Round Req. on Server)</h3>
+                 <div class="param-group needs-new-round">
+                     <div data-param="MAX_STEPS_PER_ROUND" class="param-item">
+                         <label for="param-MAX_STEPS_PER_ROUND">Max Steps/Round:</label>
+                         <input type="number" id="param-MAX_STEPS_PER_ROUND" min="100" max="10000">
+                         <span class="tooltip" tabindex="0">?<span class="tooltiptext">Max steps per bot before round ends automatically. Limits learning time per round. Requires 'New Round' on server.</span></span>
+                         <span class="reset-needed-hint">(New Round Req.)</span>
+                     </div>
+                 </div>
+
+                 <hr>
+                 <h3 class="needs-reset-all">Transformer Library & Sensing (Reset All Req. on Server)</h3>
+                 <div data-param="VISIBILITY_RANGE" class="param-item needs-reset-all">
+                     <label for="param-VISIBILITY_RANGE">Sense Visibility Range:</label>
+                     <input type="number" id="param-VISIBILITY_RANGE" min="2" max="30"> <!-- Increased max -->
+                     <span class="tooltip" tabindex="0">?<span class="tooltiptext">How far bots sense goals/opponents. Affects input features. Requires 'Reset All' on server.</span></span>
+                     <span class="reset-needed-hint">(Reset Req.)</span>
+                 </div>
+                 <!-- Library Structure Parameters -->
+                 <div class="param-group needs-reset-all">
+                     <h4>Transformer Model Structure</h4>
+                      <div data-param="SEQUENCE_LENGTH" class="param-item">
+                        <label class="library-param-label" for="param-SEQUENCE_LENGTH">Input Sequence Length:</label>
+                        <input type="number" id="param-SEQUENCE_LENGTH" min="8" max="128" step="4">
+                        <span class="tooltip" tabindex="0">?<span class="tooltiptext">Number of past time steps fed into the Transformer model. Affects memory capacity and computation. Requires 'Reset All'.</span></span>
+                        <span class="reset-needed-hint">(Reset Req.)</span>
+                     </div>
+                     <div data-param="MODEL_DIM" class="param-item">
+                        <label class="library-param-label" for="param-MODEL_DIM">Model Dimension:</label>
+                        <input type="number" id="param-MODEL_DIM" min="64" max="1024" step="32">
+                        <span class="tooltip" tabindex="0">?<span class="tooltiptext">Internal embedding dimension of the Transformer. Larger models are more powerful but slower/memory intensive. Requires 'Reset All'.</span></span>
+                        <span class="reset-needed-hint">(Reset Req.)</span>
+                     </div>
+                     <div data-param="MODEL_DEPTH" class="param-item">
+                        <label class="library-param-label" for="param-MODEL_DEPTH">Transformer Layers:</label>
+                        <input type="number" id="param-MODEL_DEPTH" min="1" max="12">
+                        <span class="tooltip" tabindex="0">?<span class="tooltiptext">Number of Transformer encoder layers. More layers allow learning more complex patterns/hierarchy. Requires 'Reset All'.</span></span>
+                        <span class="reset-needed-hint">(Reset Req.)</span>
+                     </div>
+                     <div data-param="MODEL_HEADS" class="param-item">
+                        <label class="library-param-label" for="param-MODEL_HEADS">Attention Heads:</label>
+                        <input type="number" id="param-MODEL_HEADS" min="1" max="16" step="1">
+                        <span class="tooltip" tabindex="0">?<span class="tooltiptext">Number of attention heads in each Transformer layer. Must divide Model Dimension. Requires 'Reset All'.</span></span>
+                        <span class="reset-needed-hint">(Reset Req.)</span>
+                     </div>
+                     <div data-param="EMBED_DIM" class="param-item">
+                        <label class="library-param-label" for="param-EMBED_DIM">Input Feature Embed Dim:</label>
+                        <input type="number" id="param-EMBED_DIM" min="16" max="128" step="4">
+                        <span class="tooltip" tabindex="0">?<span class="tooltiptext">Dimension used for embedding individual input features before combining them. Requires 'Reset All'.</span></span>
+                        <span class="reset-needed-hint">(Reset Req.)</span>
+                     </div>
+                 </div>
+                 <!-- Library Learning Parameters -->
+                  <div class="param-group needs-reset-all">
+                      <h4>Transformer Learning (Prediction Error Driven)</h4>
+                      <div data-param="LEARNING_RATE" class="param-item">
+                        <label class="library-param-label" for="param-LEARNING_RATE">Learning Rate:</label>
+                        <input type="text" id="param-LEARNING_RATE"> <!-- Use text for scientific notation -->
+                        <span class="tooltip" tabindex="0">?<span class="tooltiptext">Learning rate for the Adam optimizer training the Transformer (e.g., 1e-4). Requires 'Reset All'.</span></span>
+                         <span class="reset-needed-hint">(Reset Req.)</span>
+                     </div>
+                      <div data-param="BATCH_SIZE" class="param-item">
+                        <label class="library-param-label" for="param-BATCH_SIZE">Learning Batch Size:</label>
+                        <input type="number" id="param-BATCH_SIZE" min="1" max="64"> <!-- Larger batches might be possible -->
+                        <span class="tooltip" tabindex="0">?<span class="tooltiptext">Number of bot steps processed together for one learning update. Affects GPU memory and learning stability. Requires 'Reset All'.</span></span>
+                         <span class="reset-needed-hint">(Reset Req.)</span>
+                     </div>
+                      <div data-param="LOSS_ACTION_WEIGHT" class="param-item">
+                        <label class="library-param-label" for="param-LOSS_ACTION_WEIGHT">Action Loss Weight:</label>
+                        <input type="number" id="param-LOSS_ACTION_WEIGHT" min="0.0" max="5.0" step="0.1">
+                        <span class="tooltip" tabindex="0">?<span class="tooltiptext">Weighting factor for the action prediction loss (CrossEntropy) vs the next state embedding loss (MSE). Higher values prioritize correct action prediction. Requires 'Reset All'.</span></span>
+                         <span class="reset-needed-hint">(Reset Req.)</span>
+                     </div>
+                  </div>
+
+                 <hr>
+                 <h3>Learning Bot Behavior (Updates Immediately - LU)</h3>
+                 <div class="param-group">
+                     <div data-param="LEARNING_BOT_BASE_EXPLORATION_RATE" class="param-item">
+                         <label for="param-LEARNING_BOT_BASE_EXPLORATION_RATE">Base Explore Rate (%):</label>
+                         <input type="number" id="param-LEARNING_BOT_BASE_EXPLORATION_RATE" min="0" max="100">
+                         <span class="tooltip" tabindex="0">?<span class="tooltiptext">Base chance Learning Bot explores (randomly or via rules) instead of exploiting prediction. Necessary for discovering new behaviors. Updates immediately (LU).</span></span>
+                     </div>
+                      <div data-param="LEARNING_BOT_RULE_EXPLORE_PERCENT" class="param-item">
+                         <label for="param-LEARNING_BOT_RULE_EXPLORE_PERCENT">Rule Exploration (%):</label>
+                         <input type="number" id="param-LEARNING_BOT_RULE_EXPLORE_PERCENT" min="0" max="100">
+                         <span class="tooltip" tabindex="0">?<span class="tooltiptext">Percentage of *exploring* Learning Bots that will use rule-based logic (mimicking Hardcoded bot) instead of purely random actions. Guides exploration. Updates immediately (LU).</span></span>
+                     </div>
+                 </div>
+
+                 <hr>
+                 <div class="param-controls">
+                    <button id="saveParamsButton" title="Save Current Parameters on Server">Save Params (Server)</button>
+                    <button id="loadParamsButton" title="Load Parameters from Server Storage">Load Params (Server)</button>
+                    <button id="resetParamsButton" title="Reset Server Parameters to Default">Reset Params to Default (Server)</button>
+                 </div>
+            </div>
+
+             <div class="stats">
+                Goals Claimed (Total):<br>
+                Hardcoded (Blue): <span id="hc-total-goals">0</span> |
+                Learning (Red): <span id="learning-total-goals">0</span><br>
+                Learning Bot Loss (Avg): <span id="learning-avg-loss">N/A</span>
+            </div>
+
+            <div class="info">
+                <div id="hardcoded-info" class="bot-type-info">
+                    <b>Hardcoded Bots (<span id="hc-count">0</span>)</b>
+                    Active: <span id="hc-active">0</span> | <span class="frozen-status">Frozen: <span id="hc-frozen">0</span></span><br>
+                    Goals This Round: <span id="hc-goals-round">0</span>
+                </div>
+                <div id="learning-info" class="bot-type-info">
+                    <b>Learning Bots (<span id="learning-count">0</span>)</b>
+                    Active: <span id="learning-active">0</span> | <span class="frozen-status">Frozen: <span id="learning-frozen">0</span></span><br>
+                    Goals This Round: <span id="learning-goals-round">0</span><br>
+                    Last Mode (Bot L0): <span id="learning-mode-example">N/A</span><br>
+                </div>
+                 <div id="library-state-info" class="bot-type-info" style="font-size: 0.8em; max-height: 200px; overflow-y: auto;">
+                    <b>Transformer Library State (Aggregated - Server)</b><br>
+                    Last Batch Loss (Total/Action/State): <span id="last-batch-loss">N/A</span><br>
+                    Avg Loss (Total): <span id="avg-loss-detailed">N/A</span><br>
+                    Loss History (Last 10 batches): <pre id="loss-history">N/A</pre>
+                     <!-- Example Prediction vs Actual (Bot L0) -->
+                    Predicted Action: <span id="predicted-action-l0">N/A</span><br>
+                    Actual Action: <span id="actual-action-l0">N/A</span><br>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        // ================================================================
+        // --- Client-Side JavaScript (Adapted from v4.2/v5.0 draft) ---
+        // ================================================================
+        let ws = null; // WebSocket connection
+        let visualizer = null;
+        let currentBots = []; // Store latest bot states received from server
+        let currentEnvState = {}; // Store latest env state from server
+        let currentServerConfig = {}; // Store latest config from server
+        let isServerRunning = false; // Track server simulation state
+        let gpuStatus = "Unknown"; // Track GPU status from server
+
+        // --- UI Element Variables ---
+        let statusEl, roundInfoEl, gpuStatusEl;
+        let hcTotalGoalsEl, learningTotalGoalsEl, learningAvgLossEl; // Changed from Anomaly to Loss
+        let hcCountEl, hcActiveEl, hcFrozenEl, hcGoalsRoundEl;
+        let learningCountEl, learningActiveEl, learningFrozenEl, learningGoalsRoundEl, learningModeExampleEl;
+        let paramInputs = {}; // Store references to all param inputs by key
+        let gridContainerEl;
+        let startButton, stopButton, resetRoundButton, resetFullButton;
+        // Library State UI (Adjusted for Transformer Loss/Predictions)
+        let lastBatchLossEl, avgLossDetailedEl, lossHistoryEl;
+        let predictedActionL0El, actualActionL0El;
+
+
+        // --- Visualizer Class (Unchanged from v4.2) ---
+        class Visualizer {
+             constructor(canvasId) { this.canvas = document.getElementById(canvasId); if(!this.canvas) throw new Error(`Canvas #${canvasId} not found!`); this.ctx = this.canvas.getContext('2d'); this.gridSize = 0; this.cellSize = 0; this.currentGoals = []; this.currentObstacles = new Set(); this.claimedGoalsIDs = new Set(); this.lastContainerWidth = 0; }
+             updateGridDimensions(newGridSize, containerWidth) { const availableWidth = Math.max(300, containerWidth - 20); const newCellSize = Math.max(5, Math.floor(availableWidth / newGridSize)); if (newGridSize !== this.gridSize || newCellSize !== this.cellSize || containerWidth !== this.lastContainerWidth ) { this.gridSize = newGridSize; this.cellSize = newCellSize; this.canvas.width = this.gridSize * this.cellSize; this.canvas.height = this.gridSize * this.cellSize; this.lastContainerWidth = containerWidth; console.log(`Visualizer resized: Grid=${this.gridSize}, Cell=${this.cellSize}, Canvas=${this.canvas.width}x${this.canvas.height}`); this.drawGrid(); } }
+             updateEnvironment(envData) { if(!envData) return; this.currentGoals = envData.goals || []; this.currentObstacles = new Set(envData.obstacles || []); this.claimedGoalsIDs = new Set(envData.claimedGoals || []); if(this.gridSize !== envData.size) { console.warn("Grid size mismatch between visualizer and environment data!"); this.updateGridDimensions(envData.size, this.lastContainerWidth || 600); } }
+             drawGrid() { if (!this.canvas || !this.ctx || !this.gridSize || !this.cellSize) return; this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height); if (this.cellSize > 6) { this.ctx.strokeStyle = '#eee'; this.ctx.lineWidth = 1; for (let i = 0; i <= this.gridSize; i++) { const pos = Math.round(i * this.cellSize) + 0.5; this.ctx.beginPath(); this.ctx.moveTo(pos, 0); this.ctx.lineTo(pos, this.canvas.height); this.ctx.stroke(); this.ctx.beginPath(); this.ctx.moveTo(0, pos); this.ctx.lineTo(this.canvas.width, pos); this.ctx.stroke(); } } else { this.ctx.strokeStyle = '#ccc'; this.ctx.lineWidth = 1; this.ctx.strokeRect(0.5, 0.5, this.canvas.width - 1, this.canvas.height - 1); } this.ctx.fillStyle = '#555'; this.currentObstacles.forEach(obsString => { const [x, y] = obsString.split(',').map(Number); if(x>=0 && x<this.gridSize && y>=0 && y<this.gridSize) { this.ctx.fillRect(x * this.cellSize, y * this.cellSize, this.cellSize, this.cellSize); } }); this.ctx.textAlign = 'center'; this.ctx.textBaseline = 'middle'; const goalRadius = Math.max(2, this.cellSize * 0.35); const goalFontSize = Math.max(8, Math.floor(this.cellSize * 0.5)); this.currentGoals.forEach((goal) => { const drawX = goal.x * this.cellSize; const drawY = goal.y * this.cellSize; const centerX = drawX + this.cellSize / 2; const centerY = drawY + this.cellSize / 2; if(goal.x>=0 && goal.x<this.gridSize && goal.y>=0 && goal.y<this.gridSize) { if (this.claimedGoalsIDs.has(goal.id)) { this.ctx.fillStyle = '#d0d0d0'; this.ctx.fillRect(drawX, drawY, this.cellSize, this.cellSize); if (this.cellSize > 10) { this.ctx.fillStyle = '#888'; this.ctx.font = `bold ${goalFontSize}px sans-serif`; this.ctx.fillText("X", centerX, centerY); } } else { this.ctx.fillStyle = 'gold'; this.ctx.beginPath(); this.ctx.arc(centerX, centerY, goalRadius, 0, Math.PI * 2); this.ctx.fill(); if (this.cellSize > 12) { this.ctx.fillStyle = 'black'; this.ctx.font = `bold ${goalFontSize}px sans-serif`; this.ctx.fillText("G", centerX, centerY + 1); } } } }); }
+             drawBot(bot, botIndex, totalBotsOfType) { if (!bot || !bot.pos || bot.pos.x === undefined || bot.pos.y === undefined) return; const centerX = bot.pos.x * this.cellSize + this.cellSize / 2; const centerY = bot.pos.y * this.cellSize + this.cellSize / 2; const radius = Math.max(2, this.cellSize * 0.4); let baseColorRgb, alpha; const shadeFactor = totalBotsOfType <= 1 ? 0.5 : (botIndex / Math.max(1, totalBotsOfType-1)); if (bot.type === 'Hardcoded') { const blueShade = 120 + Math.floor(135 * shadeFactor); baseColorRgb = `0, 100, ${blueShade}`; alpha = 0.9; } else if (bot.type === 'Learning') { const redShade = 120 + Math.floor(135 * shadeFactor); baseColorRgb = `${redShade}, 50, 50`; alpha = 0.9; } else { baseColorRgb = `100, 100, 100`; alpha = 0.8; } this.ctx.fillStyle = `rgba(${baseColorRgb}, ${alpha})`; this.ctx.beginPath(); this.ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI); this.ctx.fill(); if (bot.freezeTimer > 0) { this.ctx.strokeStyle = '#00ccff'; this.ctx.lineWidth = Math.max(1, Math.floor(this.cellSize * 0.15)); this.ctx.beginPath(); this.ctx.arc(centerX, centerY, radius + this.ctx.lineWidth / 2, 0, 2 * Math.PI); this.ctx.stroke(); this.ctx.lineWidth = 1; } if (this.cellSize > 15) { this.ctx.fillStyle = 'white'; this.ctx.font = `bold ${Math.max(6, Math.floor(this.cellSize * 0.3))}px sans-serif`; this.ctx.textAlign = 'center'; this.ctx.textBaseline = 'middle'; const idNum = bot.id.match(/\d+/); if (idNum) this.ctx.fillText(idNum[0], centerX, centerY + 1); } }
+             update(botsData) { this.drawGrid(); const hardcodedBots = botsData.filter(b => b.type === 'Hardcoded'); const learningBots = botsData.filter(b => b.type === 'Learning'); hardcodedBots.forEach((bot, index) => this.drawBot(bot, index, hardcodedBots.length)); learningBots.forEach((bot, index) => this.drawBot(bot, index, learningBots.length)); }
+        }
+
+        // ================================================================
+        // --- WebSocket Communication (Adapted for new messages) ---
+        // ================================================================
+        function connectWebSocket() {
+            const wsUrl = `ws://${window.location.host}/ws`; // Assumes server on same host
+            console.log(`Connecting to ${wsUrl}...`);
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                console.log("WebSocket connection established.");
+                setStatus("Status: Connected. Ready.");
+                // Enable controls that require connection
+                resetRoundButton.disabled = false;
+                resetFullButton.disabled = false;
+                document.getElementById('saveParamsButton').disabled = false;
+                document.getElementById('loadParamsButton').disabled = false;
+                document.getElementById('resetParamsButton').disabled = false;
+                 // Request initial state (server might send automatically, but doesn't hurt)
+                 checkResetHints(); // Check hints based on potentially loaded config
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const message = JSON.parse(event.data);
+                    handleWebSocketMessage(message);
+                } catch (error) {
+                    console.error("Failed to parse WebSocket message:", error, event.data);
+                }
+            };
+
+            ws.onerror = (error) => {
+                console.error("WebSocket error:", error);
+                setStatus("Status: Connection Error!", true);
+                setGpuStatus("GPU: Unknown");
+                disableAllControls();
+            };
+
+            ws.onclose = (event) => {
+                console.log("WebSocket connection closed:", event.code, event.reason);
+                ws = null;
+                setStatus(`Status: Disconnected (${event.code}). Reconnecting...`, event.code !== 1000);
+                setGpuStatus("GPU: Unknown");
+                disableAllControls();
+                // Attempt to reconnect after a delay
+                setTimeout(connectWebSocket, 5000);
+            };
+        }
+
+        function sendMessage(type, payload = {}) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type, payload }));
+            } else {
+                console.warn("WebSocket not open. Cannot send message:", type);
+            }
+        }
+
+        function handleWebSocketMessage(message) {
+            const type = message.type;
+            const payload = message.payload;
+
+            switch (type) {
+                case "status_update":
+                    setStatus(payload.message, payload.is_error);
+                    isServerRunning = payload.message.toLowerCase().includes("running");
+                    updateButtonStates();
+                    break;
+                case "gpu_status_update": // Handle GPU status message
+                    setGpuStatus(payload.message);
+                    break;
+                case "config_update":
+                    console.log("Received config update from server.");
+                    currentServerConfig = payload;
+                    updateUIFromConfig(currentServerConfig);
+                    checkResetHints(); // Re-check hints based on new server config
+                    break;
+                case "environment_update":
+                    if (visualizer && payload) {
+                        currentEnvState = payload;
+                        visualizer.updateEnvironment(payload);
+                        visualizer.update(currentBots); // Redraw with current bots
+                    }
+                    break;
+                case "bots_update":
+                     currentBots = payload || [];
+                     if (visualizer) {
+                         visualizer.update(currentBots);
+                     }
+                     updateInfoPanel(currentBots); // Update bot counts, etc.
+                     break;
+                case "stats_update":
+                    updateStatsPanel(payload);
+                    break;
+                case "library_state_update": // Renamed, now for Transformer state
+                    updateLibraryStatePanel(payload);
+                    break;
+                case "action_feedback": // Feedback for save/load/reset param actions
+                    alert(`${payload.success ? 'Success' : 'Failed'}: ${payload.message}`);
+                    break;
+                default:
+                    console.warn("Received unknown message type:", type);
+            }
+        }
+
+        // ================================================================
+        // --- UI Updates (Adapted for Transformer) ---
+        // ================================================================
+        function setStatus(message, isError = false) {
+            if (statusEl) {
+                statusEl.textContent = message;
+                statusEl.classList.toggle('error', isError);
+            }
+        }
+
+        function setGpuStatus(message) { // New function for GPU status
+            if (gpuStatusEl) {
+                gpuStatusEl.textContent = message;
+            }
+        }
+
+        function updateButtonStates() {
+            const connected = ws && ws.readyState === WebSocket.OPEN;
+            startButton.disabled = !connected || isServerRunning;
+            stopButton.disabled = !connected || !isServerRunning;
+            resetRoundButton.disabled = !connected || isServerRunning; // Can reset when stopped
+            resetFullButton.disabled = !connected || isServerRunning; // Can reset when stopped
+            // Param save/load/reset enabled only when connected (server handles running check)
+             document.getElementById('saveParamsButton').disabled = !connected;
+             document.getElementById('loadParamsButton').disabled = !connected;
+             document.getElementById('resetParamsButton').disabled = !connected;
+        }
+
+        function disableAllControls() {
+             startButton.disabled = true;
+             stopButton.disabled = true;
+             resetRoundButton.disabled = true;
+             resetFullButton.disabled = true;
+             document.getElementById('saveParamsButton').disabled = true;
+             document.getElementById('loadParamsButton').disabled = true;
+             document.getElementById('resetParamsButton').disabled = true;
+        }
+
+        function formatFloat(value, precision = 6) {
+            if (typeof value !== 'number') return value;
+            // Use scientific notation for very small or large numbers
+            if (Math.abs(value) > 0 && (Math.abs(value) < 10**(-precision+1) || Math.abs(value) >= 10**precision)) {
+                return value.toExponential(precision - 2);
+            }
+            // Otherwise, use fixed notation
+            return value.toFixed(precision);
+        }
+
+        function updateUIFromConfig(configData) {
+            if (!configData) return;
+            console.log("Updating UI from config:", configData);
+            for (const key in configData) {
+                 const inputEl = paramInputs[key];
+                 if (inputEl) {
+                     const value = configData[key];
+                     if (inputEl.type === 'number' && typeof value === 'number') {
+                          if (key === 'LEARNING_BOT_BASE_EXPLORATION_RATE' || key === 'LEARNING_BOT_RULE_EXPLORE_PERCENT') {
+                              inputEl.value = Math.round(value * 100); // Convert rate to percentage
+                          } else if (key === 'LEARNING_RATE') {
+                               inputEl.value = value; // Keep precision for LR
+                          } else if (key === 'LOSS_ACTION_WEIGHT') {
+                               inputEl.value = value.toFixed ? value.toFixed(2) : value; // Format floats
+                          } else {
+                             inputEl.value = Math.round(value); // Round other numbers like dim, depth, heads etc.
+                          }
+                     } else if (inputEl.type === 'text' && key === 'LEARNING_RATE') {
+                         inputEl.value = value; // Set text input for LR directly
+                     } else {
+                         inputEl.value = value;
+                     }
+                 }
+             }
+             if (visualizer && configData.GRID_SIZE && visualizer.gridSize !== configData.GRID_SIZE) {
+                  const containerWidth = gridContainerEl ? gridContainerEl.offsetWidth : 600;
+                  visualizer.updateGridDimensions(configData.GRID_SIZE, containerWidth);
+             }
+        }
+
+        function updateStatsPanel(statsData) {
+             if (!statsData || !roundInfoEl) return;
+             roundInfoEl.textContent = `Round: ${statsData.roundNumber ?? 'N/A'}`;
+             hcTotalGoalsEl.textContent = statsData.hcTotalGoals ?? '0';
+             learningTotalGoalsEl.textContent = statsData.learningTotalGoals ?? '0';
+             learningAvgLossEl.textContent = statsData.learningAvgLoss ?? 'N/A'; // Changed from Anomaly to Loss
+        }
+
+        function updateInfoPanel(botsData) {
+             if (!botsData || !hcCountEl) return;
+             const hardcodedBots = botsData.filter(b => b.type === 'Hardcoded');
+             const learningBots = botsData.filter(b => b.type === 'Learning');
+
+             const hcActive = hardcodedBots.filter(b => b.freezeTimer <= 0).length;
+             const learningActive = learningBots.filter(b => b.freezeTimer <= 0).length;
+
+             hcCountEl.textContent = hardcodedBots.length;
+             hcActiveEl.textContent = hcActive;
+             hcFrozenEl.textContent = hardcodedBots.length - hcActive;
+             hcGoalsRoundEl.textContent = hardcodedBots.reduce((sum, b) => sum + (b.goalsReachedThisRound || 0), 0);
+
+             learningCountEl.textContent = learningBots.length;
+             learningActiveEl.textContent = learningActive;
+             learningFrozenEl.textContent = learningBots.length - learningActive;
+             learningGoalsRoundEl.textContent = learningBots.reduce((sum, b) => sum + (b.goalsReachedThisRound || 0), 0);
+             learningModeExampleEl.textContent = learningBots.length > 0 ? (learningBots[0].mode || 'N/A') : 'N/A';
+        }
+
+         function updateLibraryStatePanel(stateData) { // Adjusted for Transformer state
+            if (!lastBatchLossEl) return; // Check if UI element exists
+            if (stateData) {
+                lastBatchLossEl.textContent = stateData.lastBatchLoss || 'N/A';
+                avgLossDetailedEl.textContent = stateData.avgLoss || 'N/A';
+                lossHistoryEl.textContent = stateData.lossHistory || 'N/A';
+                predictedActionL0El.textContent = stateData.predictedActionL0 ?? 'N/A';
+                actualActionL0El.textContent = stateData.actualActionL0 ?? 'N/A';
+            } else { // Clear if no data received
+                lastBatchLossEl.textContent = 'N/A';
+                avgLossDetailedEl.textContent = 'N/A';
+                lossHistoryEl.textContent = 'N/A';
+                predictedActionL0El.textContent = 'N/A';
+                actualActionL0El.textContent = 'N/A';
+            }
+        }
+
+        // --- Parameter Change Handling (Largely unchanged, handles text input for LR) ---
+        function handleParamChange(event) {
+             const inputEl = event.target;
+             const paramKey = inputEl.id.replace('param-', '');
+             let value = inputEl.value;
+
+             if (paramKey === 'LEARNING_BOT_BASE_EXPLORATION_RATE' || paramKey === 'LEARNING_BOT_RULE_EXPLORE_PERCENT') {
+                 value = parseFloat(value) / 100.0;
+                 if (isNaN(value)) value = 0;
+             } else if (inputEl.type === 'number') {
+                 value = parseFloat(value);
+                 if (isNaN(value)) return; // Don't send if invalid number
+             } else if (inputEl.type === 'text' && paramKey === 'LEARNING_RATE') {
+                  // Allow scientific notation for LR text input
+                  value = parseFloat(value); // Attempt to parse to float
+                  if (isNaN(value)) {
+                      console.warn(`Invalid Learning Rate format: ${inputEl.value}`);
+                      // Optionally revert UI or show error? For now, just don't send bad value
+                      return;
+                  }
+             }
+             // No special handling needed for other text inputs if any
+
+             console.log(`Param changed: ${paramKey} = ${value}`);
+             sendMessage("updateParam", { key: paramKey, value: value });
+             checkResetHints();
+        }
+
+
+         function checkResetHints() { // Mostly unchanged, handles LR comparison carefully
+             if (!paramInputs || Object.keys(currentServerConfig).length === 0) return;
+             document.querySelectorAll('.parameters div.param-item').forEach(div => {
+                 const inputId = div.querySelector('input')?.id;
+                 if (!inputId) return;
+                 const paramKey = inputId.replace('param-', '');
+                 const inputEl = paramInputs[paramKey];
+                 const hintEl = div.querySelector('.reset-needed-hint');
+                 if (!inputEl || !hintEl) return;
+
+                 let uiValue = inputEl.value;
+                 let serverValue = currentServerConfig[paramKey];
+                 let needsResetAllClass = div.classList.contains('needs-reset-all') || div.parentElement?.classList.contains('needs-reset-all');
+                 let needsNewRoundClass = div.classList.contains('needs-new-round') || div.parentElement?.classList.contains('needs-new-round');
+                 let showHint = false;
+                 let hintText = '';
+
+                 if (serverValue !== undefined) {
+                     let comparableUiValue;
+                     let comparableServerValue = serverValue;
+
+                     if (inputEl.type === 'number' || (inputEl.type === 'text' && paramKey === 'LEARNING_RATE')) {
+                         if (paramKey === 'LEARNING_BOT_BASE_EXPLORATION_RATE' || paramKey === 'LEARNING_BOT_RULE_EXPLORE_PERCENT') {
+                             comparableUiValue = parseFloat(uiValue) / 100.0;
+                         } else if (paramKey === 'LEARNING_RATE') {
+                             comparableUiValue = parseFloat(uiValue);
+                              // Compare learning rate as floats
+                              if(typeof comparableServerValue === 'number') comparableServerValue = parseFloat(comparableServerValue);
+                              if(typeof comparableUiValue === 'number') comparableUiValue = parseFloat(comparableUiValue);
+                         } else {
+                              comparableUiValue = parseFloat(uiValue);
+                              // Round server int/float for robust comparison with UI int input
+                               if (typeof comparableServerValue === 'number' && Number.isFinite(comparableServerValue)) {
+                                comparableServerValue = Math.round(comparableServerValue);
+                              }
+                              if (typeof comparableUiValue === 'number' && Number.isFinite(comparableUiValue)) {
+                                comparableUiValue = Math.round(comparableUiValue);
+                              }
+                         }
+                     } else {
+                         comparableUiValue = uiValue; // Assume string comparison for other types
+                     }
+
+                     // Use parseFloat comparison for LR, string comparison otherwise for simplicity
+                     let valuesDiffer = false;
+                     if (paramKey === 'LEARNING_RATE') {
+                          valuesDiffer = Math.abs(comparableUiValue - comparableServerValue) > 1e-9; // Tolerance for float comparison
+                     } else {
+                          valuesDiffer = String(comparableUiValue) !== String(comparableServerValue);
+                     }
+
+
+                     if (valuesDiffer) {
+                          if (needsResetAllClass) {
+                             showHint = true; hintText = '(Reset Req.)';
+                          } else if (needsNewRoundClass) {
+                             showHint = true; hintText = '(New Round Req.)';
+                          } else {
+                             showHint = false;
+                          }
+                          if (isServerRunning && (needsResetAllClass || needsNewRoundClass)) {
+                             showHint = true;
+                             hintText = needsResetAllClass ? '(Reset Req.)' : '(New Round Req.)';
+                          }
+                     }
+                 }
+
+                 hintEl.style.display = showHint ? 'inline' : 'none';
+                 if (showHint) hintEl.textContent = hintText;
+             });
+         }
+
+        // ================================================================
+        // --- Initial Setup ---
+        // ================================================================
+        window.onload = () => {
+            console.log("Window loaded. Initializing Client/Server PyTorch Transformer Demo v5.0...");
+
+            // Assign DOM elements
+            statusEl=document.getElementById('status'); roundInfoEl=document.getElementById('round-info'); gpuStatusEl=document.getElementById('gpu-status'); // Added GPU status
+            hcTotalGoalsEl=document.getElementById('hc-total-goals'); learningTotalGoalsEl=document.getElementById('learning-total-goals'); learningAvgLossEl=document.getElementById('learning-avg-loss'); // Changed ID
+            hcCountEl=document.getElementById('hc-count'); hcActiveEl=document.getElementById('hc-active'); hcFrozenEl=document.getElementById('hc-frozen'); hcGoalsRoundEl=document.getElementById('hc-goals-round');
+            learningCountEl=document.getElementById('learning-count'); learningActiveEl=document.getElementById('learning-active'); learningFrozenEl=document.getElementById('learning-frozen'); learningGoalsRoundEl=document.getElementById('learning-goals-round'); learningModeExampleEl=document.getElementById('learning-mode-example');
+            gridContainerEl=document.querySelector('.grid-container');
+            startButton=document.getElementById('startButton'); stopButton=document.getElementById('stopButton'); resetRoundButton=document.getElementById('resetRoundButton'); resetFullButton=document.getElementById('resetFullButton');
+            // Library state elements
+            lastBatchLossEl = document.getElementById('last-batch-loss');
+            avgLossDetailedEl = document.getElementById('avg-loss-detailed');
+            lossHistoryEl = document.getElementById('loss-history');
+            predictedActionL0El = document.getElementById('predicted-action-l0');
+            actualActionL0El = document.getElementById('actual-action-l0');
+
+
+            // Store references to all parameter inputs
+            document.querySelectorAll('.parameters input[type=number], .parameters input[type=text]').forEach(input => {
+                const paramKey = input.id.replace('param-', '');
+                paramInputs[paramKey] = input;
+                 input.addEventListener('change', handleParamChange);
+                 input.addEventListener('input', checkResetHints);
+            });
+
+            if (!statusEl || !gridContainerEl || !startButton || !lastBatchLossEl /* Check new UI */) {
+                 console.error("CRITICAL: Failed to find essential UI elements!"); document.body.innerHTML = "<h1>Error: Page Initialization Failed! Check Console.</h1>"; return;
+            }
+
+            // Initialize Visualizer
+            try {
+                visualizer = new Visualizer('gridCanvas');
+                const containerWidth = gridContainerEl ? gridContainerEl.offsetWidth : 600;
+                visualizer.updateGridDimensions(35, containerWidth); // Default size initially
+            } catch (error) { console.error("Failed to create Visualizer:", error); setStatus("Error: Vis init failed!", true); return; }
+
+            // Add Button Listeners
+            startButton.addEventListener('click', () => sendMessage('start'));
+            stopButton.addEventListener('click', () => sendMessage('stop'));
+            resetRoundButton.addEventListener('click', () => sendMessage('resetRound'));
+            resetFullButton.addEventListener('click', () => sendMessage('resetAll'));
+            document.getElementById('saveParamsButton').addEventListener('click', () => sendMessage('saveParams'));
+            document.getElementById('loadParamsButton').addEventListener('click', () => sendMessage('loadParams'));
+            document.getElementById('resetParamsButton').addEventListener('click', () => sendMessage('resetParams'));
+
+            // Resize Listener
+             let resizeTimeout; window.addEventListener('resize', () => { clearTimeout(resizeTimeout); resizeTimeout = setTimeout(() => { if (visualizer && currentEnvState && currentEnvState.size) { try { const cw = gridContainerEl ? gridContainerEl.offsetWidth : 600; visualizer.updateGridDimensions(currentEnvState.size, cw); visualizer.update(currentBots); } catch(e){ console.error("Error during resize handling:", e); } } }, 150); });
+
+            // Disable controls initially until connected
+            disableAllControls();
+
+            // Connect WebSocket
+            connectWebSocket();
+        };
+
+    </script>
+</body>
+</html>
