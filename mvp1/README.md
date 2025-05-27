@@ -1,3 +1,5 @@
+# [Hierarchical_Multi-Bot_Sim_Client-Side_TFJS_-_v6.0.4](https://neuroidss.github.io/Abyssal-Arena-Echoes-of-Descent/mvp1/Hierarchical_Multi-Bot_Sim_Client-Side_TFJS_-_v6.0.4.html)
+
 # vibe coding prompt for [SDR_Prediction_Demo](https://neuroidss.github.io/Abyssal-Arena-Echoes-of-Descent/mvp1/Multi-Bot_SDR_Prediction_Demo_(v4.2_-_HTM_Principles).html)
 ```
 first research how to make SDR (Sparse Distributed Representation) in tfjs.
