@@ -1067,7 +1067,11 @@
                 }
             }
             if (this.start_positions.length < total_bots) { logMessage(`CRITICAL Warning: Placed only ${this.start_positions.length}/${total_bots} bots. Adjusting counts.`, "warn"); this.num_hc_bots = this.start_positions.filter(b => b.type === 'Hardcoded').length; this.num_learning_bots = this.start_positions.filter(b => b.type === 'Learning').length; }
-            const num_obstacles_to_place = total_cells > 0 ? Math.floor(Math.random() * (total_cells * this.max_obstacles_factor - total_cells * this.min_obstacles_factor + 1)) + Math.floor(total_cells * this.min_obstacles_factor) : 0;
+            
+            const num_obstacles_to_place_calc = total_cells > 0 ? Math.floor(Math.random() * (total_cells * this.max_obstacles_factor - total_cells * this.min_obstacles_factor + 1)) + Math.floor(total_cells * this.min_obstacles_factor) : 0;
+            // logMessage(`Obstacle calc: total_cells=${total_cells}, min_factor=${this.min_obstacles_factor}, max_factor=${this.max_obstacles_factor}, calculated_num_to_place=${num_obstacles_to_place_calc}`);
+            const num_obstacles_to_place = Math.max(0, num_obstacles_to_place_calc); // Ensure non-negative
+
             attempts = 0; let placed_obstacles = 0;
             while (placed_obstacles < num_obstacles_to_place && attempts < max_placement_attempts) {
                 attempts++; const pos_arr = [Math.floor(Math.random() * this.size), Math.floor(Math.random() * this.size)];
@@ -1441,12 +1445,42 @@
         } else { 
             clientState.round++;
             if (clientState.environment) {
-                 const env_keys = ['GRID_SIZE', 'NUM_HC_BOTS', 'NUM_LEARNING_BOTS', 'NUM_GOALS'];
-                 const env_changed = env_keys.some(k => current_config[k] !== clientState.environment[k.toLowerCase().replace('num_','num_')]); 
-                 if (env_changed) { logMessage("Env structure change, forcing full reset...", "warn"); return setup_simulation(true, true); }
-                 else if (new_environment_setting || current_config.RANDOMIZE_ENV_PER_ROUND) { logMessage("Randomizing env for new round..."); clientState.environment.randomize(); }
-                 else clientState.environment.reset_round_state();
-            } else { new_environment_setting = true; } 
+                 let env_changed_flag = false;
+                 let change_details = "Env structure change detected. Differences:\n";
+                 let changed_any = false;
+
+                 if (current_config.GRID_SIZE !== clientState.environment.size) {
+                     change_details += `GRID_SIZE: config=${current_config.GRID_SIZE}, env=${clientState.environment.size}\n`;
+                     changed_any = true;
+                 }
+                 if (current_config.NUM_HC_BOTS !== clientState.environment.num_hc_bots) {
+                     change_details += `NUM_HC_BOTS: config=${current_config.NUM_HC_BOTS}, env=${clientState.environment.num_hc_bots}\n`;
+                     changed_any = true;
+                 }
+                 if (current_config.NUM_LEARNING_BOTS !== clientState.environment.num_learning_bots) {
+                     change_details += `NUM_LEARNING_BOTS: config=${current_config.NUM_LEARNING_BOTS}, env=${clientState.environment.num_learning_bots}\n`;
+                     changed_any = true;
+                 }
+                 if (current_config.NUM_GOALS !== clientState.environment.num_goals_initial) {
+                     change_details += `NUM_GOALS: config=${current_config.NUM_GOALS}, env=${clientState.environment.num_goals_initial}\n`;
+                     changed_any = true;
+                 }
+                 env_changed_flag = changed_any;
+
+                 if (env_changed_flag) {
+                    logMessage(change_details + "Forcing full reset...", "warn");
+                    return setup_simulation(true, true);
+                 }
+                 else if (new_environment_setting || current_config.RANDOMIZE_ENV_PER_ROUND) {
+                    logMessage("Randomizing env for new round...");
+                    clientState.environment.randomize();
+                 }
+                 else {
+                    clientState.environment.reset_round_state();
+                 }
+            } else { // clientState.environment is null
+                new_environment_setting = true;
+            }
         }
         player_direct_actions = {}; 
         if (new_environment_setting || !clientState.environment) {
@@ -1455,12 +1489,18 @@
                  const obs_range = [current_config.OBSTACLES_FACTOR_MIN, current_config.OBSTACLES_FACTOR_MAX];
                  const dist_factors = { MIN_GOAL_START_DISTANCE_FACTOR: current_config.MIN_GOAL_START_DISTANCE_FACTOR, MIN_BOT_START_DISTANCE_FACTOR: current_config.MIN_BOT_START_DISTANCE_FACTOR, MIN_BOT_GOAL_DISTANCE_FACTOR: current_config.MIN_BOT_GOAL_DISTANCE_FACTOR };
                  clientState.environment = new GridEnvironment_JS(current_config.GRID_SIZE, current_config.NUM_GOALS, obs_range, current_config.NUM_HC_BOTS, current_config.NUM_LEARNING_BOTS, dist_factors);
+                 
                  if (clientState.environment.num_hc_bots !== current_config.NUM_HC_BOTS || clientState.environment.num_learning_bots !== current_config.NUM_LEARNING_BOTS) {
                      logMessage(`Env adjusted bot counts: HC=${clientState.environment.num_hc_bots}, Lrn=${clientState.environment.num_learning_bots}. Updating config.`, "warn");
-                     current_config.NUM_HC_BOTS = clientState.environment.num_hc_bots; current_config.NUM_LEARNING_BOTS = clientState.environment.num_learning_bots;
+                     current_config.NUM_HC_BOTS = clientState.environment.num_hc_bots;
+                     current_config.NUM_LEARNING_BOTS = clientState.environment.num_learning_bots;
                      updateUIFromConfig(current_config); 
                  }
-                 if (!full_reset) full_reset = true; 
+                 // If environment creation happened, it implies a full reset scenario or equivalent.
+                 // The 'full_reset' flag for subsequent logic should reflect this.
+                 if (!full_reset) { // If we weren't already in a full_reset path but created a new env
+                    full_reset = true; // Treat as if it was a full reset for bot re-initialization
+                 }
              } catch (e) { logMessage("FATAL: Environment creation failed: " + e.message, "error"); return false; }
         }
         
@@ -1600,6 +1640,11 @@
     function markParamChanged(key) { if(clientState.isRunning) return; const paramItem = paramItems[key]; const input = paramInputs[key]; if (!paramItem || !input || !current_config) return; const uiConf = getUIConfig(); const uiValue = uiConf[key]; const serverValue = current_config[key]; let isDifferent = false; if (typeof uiValue === 'object' && typeof serverValue === 'object') { isDifferent = JSON.stringify(uiValue) !== JSON.stringify(serverValue); } else if (typeof uiValue === 'number' && typeof serverValue === 'number') { isDifferent = Math.abs(uiValue - serverValue) > 1e-9; } else { isDifferent = String(uiValue) !== String(serverValue); } if (isDifferent) { paramItem.classList.add('changed'); } else { paramItem.classList.remove('changed'); } updateButtonStates(); updateMobileControls(); }
     function markParamsApplied() { document.querySelectorAll('.param-item.changed').forEach(el => el.classList.remove('changed')); updateButtonStates(); updateMobileControls(); }
     function clearResetHints() { clientState.needsFullReset = false; clientState.needsRoundReset = false; updateButtonStates(); updateMobileControls(); }
+    
+    function handleParamInputChange(key) {
+        markParamChanged(key);
+    }
+
     function checkForNeededResets() { if(clientState.isRunning) return; const uiConfig = getUIConfig(); let needsF = false; let needsR = false; const rAllK = ['GRID_SIZE', 'NUM_HC_BOTS', 'NUM_LEARNING_BOTS', 'NUM_GOALS', 'SENSORY_INPUT_DIM', 'HIERARCHY_LEVEL_CONFIGS', 'POLICY_HEAD_INPUT_LEVEL_NAME', 'USE_RULES_AS_HNS_INPUT', 'NUM_ACTIONS']; const rRndK = ['MAX_STEPS_PER_ROUND', 'VISIBILITY_RANGE', 'OBSTACLES_FACTOR_MIN', 'OBSTACLES_FACTOR_MAX', 'MIN_GOAL_START_DISTANCE_FACTOR', 'MIN_BOT_START_DISTANCE_FACTOR', 'MIN_BOT_GOAL_DISTANCE_FACTOR', 'MENTAL_ATTACK_RANGE', 'MENTAL_ATTACK_DURATION']; let hasAnyChanges = false; for(const key in uiConfig) { if(current_config && current_config.hasOwnProperty(key)) { const uiVal = uiConfig[key]; const srvVal = current_config[key]; let different = false; if (typeof uiVal === 'object' && typeof srvVal === 'object') { different = JSON.stringify(uiVal) !== JSON.stringify(srvVal); } else if (typeof uiVal === 'number' && typeof srvVal === 'number') { different = Math.abs(uiVal - srvVal) > 1e-9; } else { different = String(uiVal) !== String(srvVal); } const item = paramItems[key]; if(different) { hasAnyChanges = true; if(item) item.classList.add('changed'); if (rAllK.includes(key)) needsF = true; else if (rRndK.includes(key)) needsR = true; } else { if(item) item.classList.remove('changed'); } } } clientState.needsFullReset = needsF; clientState.needsRoundReset = needsR || needsF; updateButtonStates(); updateMobileControls(); }
     function saveParamsToLocalStorage() { try { const uiConf = getUIConfig(); localStorage.setItem(LOCAL_STORAGE_KEY_UI, JSON.stringify(uiConf)); alert('UI Parameters saved!'); } catch (e) { logMessage('Failed to save UI params: ' + e.message, "error"); alert('Error saving UI parameters.'); } }
     function loadParamsFromLocalStorage() { if(clientState.isRunning) { alert("Stop simulation first."); return; } try { const saved = localStorage.getItem(LOCAL_STORAGE_KEY_UI); if (saved) { const parsed = JSON.parse(saved); updateUIFromConfig(parsed); markParamsApplied(); statusEl.textContent = "Status: UI Params Loaded. Apply or check resets."; checkForNeededResets(); alert('UI Parameters loaded. Review & Apply/Reset if needed.'); } else alert('No saved UI parameters found.'); } catch (e) { logMessage('Failed to load UI params: ' + e.message, "error"); alert('Error loading UI parameters.'); } }
