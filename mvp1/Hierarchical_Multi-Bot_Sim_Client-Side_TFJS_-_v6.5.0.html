@@ -1,0 +1,1659 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Hierarchical Multi-Bot Sim (Client-Side TFJS) - v6.5.0 (lil-gui Enhanced)</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <style>
+        :root {
+             --bg-color: #f0f2f5;
+             --container-bg: #ffffff;
+             --border-color: #d9d9d9;
+             --text-color: #333;
+             --primary-color: #1890ff;
+             --primary-hover: #40a9ff;
+             --secondary-color: #faad14;
+             --secondary-hover: #ffc53d;
+             --danger-color: #f5222d;
+             --danger-hover: #ff4d4f;
+             --success-color: #52c41a;
+             --success-hover: #73d13d;
+             --info-color: #13c2c2;
+             --info-hover: #36cfc9;
+             --warn-color: #fa8c16;
+             --frozen-color: #40a9ff;
+             --hallucinating-color: #722ed1;
+             --param-label-color: #0050b3;
+             --player-color: var(--success-color);
+             --player-controlled-color: var(--success-color);
+             --hardcoded-color: var(--primary-color);
+             --learning-color: var(--danger-color);
+             --learning-available-color: #ff7a45;
+             --target-indicator-bg: rgba(255, 255, 0, 0.7);
+             --target-crosshair-color: rgba(255, 0, 0, 0.7);
+        }
+        html, body { height: 100%; margin: 0; padding: 0; overflow-x: hidden; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"; display: flex; flex-direction: column; align-items: center; padding: 10px; box-sizing: border-box; line-height: 1.5; background-color: var(--bg-color); color: var(--text-color); -webkit-tap-highlight-color: transparent; }
+        canvas { border: 1px solid var(--border-color); margin-bottom: 10px; display: block; max-width: 100%; height: auto; touch-action: manipulation; background-color: var(--container-bg); cursor: crosshair; image-rendering: pixelated; }
+        .main-container { display: flex; flex-direction: row; flex-wrap: wrap; align-items: flex-start; width: 100%; max-width: 1700px; justify-content: center; gap: 25px; padding-bottom: 150px; }
+        .grid-container { flex-basis: 600px; flex-grow: 1; max-width: 800px; min-width: 300px; display: flex; flex-direction: column; justify-content: flex-start; align-items: center; }
+        .controls-and-info { display: flex; flex-direction: column; flex-basis: 480px; flex-grow: 1; min-width: 320px; max-width: 700px; background-color: var(--container-bg); padding: 15px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .lil-gui.autoPlace { top: 10px !important; right: 10px !important; left: auto !important; max-height: calc(100vh - 20px) !important; z-index: 1001 !important; }
+        .lil-gui .title { font-weight: bold; }
+        .lil-gui .name { min-width: 150px !important; }
+        .info { display: flex; flex-direction: column; gap: 10px; margin-top: 15px; }
+        .bot-type-info { border: 1px solid #e8e8e8; padding: 10px; font-size: 0.88em; background-color: #fafafa; border-radius: 5px; }
+        .bot-type-info b { display: block; margin-bottom: 4px; font-size: 1.05em; }
+        .stats { margin-top: 15px; font-weight: bold; padding: 12px; background-color: #e6f7ff; border: 1px solid #bae7ff; border-radius: 5px; font-size: 0.95em; line-height: 1.5; }
+        .status-tag { font-weight: bold; border: 1px dashed; padding: 1px 4px; border-radius: 4px; display: inline-block; font-size: 0.8em; margin-left: 4px; }
+        .frozen-status { color: var(--frozen-color); border-color: var(--frozen-color); background-color: #e6f7ff; }
+        .hallucinating-status { color: var(--hallucinating-color); border-color: var(--hallucinating-color); background-color: #f9f0ff; }
+        hr { width: 100%; margin: 20px 0; border: 0; border-top: 1px solid #e8e8e8; }
+        #status, #round-info, #player-info { margin-top: 8px; font-weight: bold; }
+        #status { font-size: 1.05em; color: #333; min-height: 1.4em; }
+        #round-info { font-size: 0.95em; color: #555;}
+        #player-info { font-size: 0.9em; color: var(--player-color); margin-bottom: 8px; }
+        .hc-color { color: var(--hardcoded-color); font-weight: bold;}
+        .ln-color { color: var(--learning-color); font-weight: bold;}
+        .pl-color { color: var(--player-color); font-weight: bold;}
+        .player-controlled-marker { font-weight: bold; color: var(--player-controlled-color); margin-left: 5px; font-size: 0.9em; }
+        .learning-available-marker { outline: 2px dashed var(--learning-available-color); outline-offset: 2px; cursor: pointer; }
+        #target-indicator { position: fixed; top: 5px; left: 8px; font-size: 0.85em; padding: 4px 8px; border-radius: 4px; background-color: var(--target-indicator-bg); color: #333; font-weight: bold; z-index: 1000; box-shadow: 0 1px 3px rgba(0,0,0,0.2); display: none; }
+        @media (max-width: 768px) {
+            .main-container { padding-bottom: 80px; }
+            .grid-container { min-width: unset; width: 100%; max-width: 100%; flex-basis: auto; }
+            .controls-and-info { min-width: unset; width: 100%; max-width: 100%; flex-basis: auto; margin-top:15px; }
+            .lil-gui.autoPlace { top: 5px !important; right: 5px !important; width: calc(100% - 10px) !important; max-width: 300px; max-height: calc(100vh - 10px) !important; }
+        }
+    </style>
+</head>
+<body>
+    <h1>Hierarchical Multi-Bot Sim (Client-Side TFJS) - v6.4.0 (lil-gui Enhanced)</h1>
+    <p style="max-width: 900px; text-align: center; margin-bottom: 15px; font-size: 0.95em;">
+        Bots navigate, claim goals, punch opponents, or use mental attacks. Tap/Click grid to set target for player bot. Tap self to cancel.
+        <span class="ln-color">Learning Bots (Red)</span> use client-side TensorFlow.js Hierarchical Neural Memory.
+        <span class="hc-color">Hardcoded Bots (Blue)</span> use rules.
+        <span class="pl-color">Players (Green)</span> control a Learning Bot. Click <span style="color: var(--learning-available-color); font-weight:bold;">Available Learning Bot</span> or "Join Game" button in GUI.
+    </p>
+    <p style="font-size:0.85em; color: var(--danger-color);"><i>Simulation runs entirely in your browser using TensorFlow.js. Performance depends on your CPU/GPU. Advanced AV/EEG features from server version are removed.</i></p>
+    <div id="target-indicator">Target: None</div>
+
+    <div class="main-container">
+        <div class="grid-container">
+            <canvas id="gridCanvas" width="600" height="600"></canvas>
+             <div id="player-info">Player Bot ID: None</div>
+             <p style="font-size: 0.85em; margin-top: 5px;" class="desktop-only">Controls: Click/Drag on grid to set target. Click self to cancel. Click available Learning Bot or Join button in GUI.</p>
+        </div>
+
+        <div class="controls-and-info">
+             <div id="status" style="margin-bottom: 5px;">Status: Initializing...</div>
+             <div id="round-info" style="margin-bottom: 15px;">Round: 0</div>
+            <hr>
+             <div class="stats">
+                Goals Claimed (Total):<br>
+                <span class="hc-color">Hardcoded:</span> <span id="hc-total-goals">0</span> |
+                <span class="ln-color">Learning</span>/<span class="pl-color">Player:</span> <span id="learning-total-goals">0</span><br>
+                Avg Bot Anomaly (Learning): <span id="learning-avg-anomaly">N/A</span> (Sum of all level anomalies)
+            </div>
+
+            <div class="info">
+                <div id="bots-info-container" style="max-height: 250px; overflow-y: auto; border: 1px solid #f0f0f0; padding: 5px; background: #fff;">
+                     <div class="bot-type-info"><b>Bots Information Loading...</b></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script type="importmap">
+    {
+        "imports": {
+            "lil-gui": "https://unpkg.com/lil-gui@0.19.1/dist/lil-gui.esm.js"
+        }
+    }
+    </script>
+
+<script type="module">
+    import GUI from 'lil-gui';
+
+    class MemoryMLP_TFJS {
+        constructor(inputDim, depth, expansionOrTargetDim, namePrefix = '', activation = 'elu') {
+            this.inputDim = inputDim;
+            this.depth = depth;
+            this.namePrefix = namePrefix;
+            this.model = null;
+            this.isDisposed = false;
+            if (depth < 1) { this.isIdentity = true; return; }
+            this.isIdentity = false;
+            const layers = [];
+            let currentLayerInputShape = [this.inputDim];
+            for (let i = 0; i < depth; i++) {
+                const isLast = i === (depth - 1);
+                let currentLayerOutputUnits;
+                if (depth === 1) { currentLayerOutputUnits = expansionOrTargetDim; } 
+                else { currentLayerOutputUnits = isLast ? this.inputDim : Math.floor(this.inputDim * expansionOrTargetDim); }
+                const denseLayerConfig = {
+                    units: currentLayerOutputUnits, kernelInitializer: 'glorotUniform',
+                    biasInitializer: 'zeros', name: `${namePrefix}_mlp_dense_${i}`
+                };
+                if (i === 0) { denseLayerConfig.inputShape = currentLayerInputShape; }
+                layers.push(tf.layers.dense(denseLayerConfig));
+                currentLayerInputShape = [currentLayerOutputUnits]; 
+                if (!isLast) { layers.push(tf.layers.activation({activation: activation, name: `${namePrefix}_mlp_act_${i}`})); }
+            }
+            this.model = tf.sequential({ name: `${namePrefix}_mlp_sequential`, layers });
+        }
+        call(inputs) { 
+            if (this.isDisposed) throw new Error(`${this.namePrefix} MLP model is disposed.`);
+            if (this.isIdentity) return tf.keep(inputs.clone());
+            if (!this.model) throw new Error (`MemoryMLP_TFJS (${this.namePrefix}): Model not initialized properly.`);
+            return this.model.apply(inputs);
+        }
+        getWeights() { 
+            if (this.isDisposed || this.isIdentity || !this.model) return [];
+            return this.model.getWeights().map(w => tf.keep(w.clone()));
+        }
+        setWeights(weights) { 
+            if (this.isDisposed || this.isIdentity || !this.model || !weights || weights.length === 0) return;
+            this.model.setWeights(weights); 
+        }
+        getTrainableVariables() {
+            if (this.isDisposed || this.isIdentity || !this.model) return [];
+            return this.model.trainableWeights.map(tw => tw.val); 
+        }
+        dispose() {
+            if (this.isDisposed) return;
+            if (this.model && typeof this.model.dispose === 'function') { this.model.dispose(); }
+            this.model = null; this.isDisposed = true;
+        }
+    }
+    function createNeuralMemState(seq_index = 0, layerWeights = {}, optim_state = {}) { 
+        return { seq_index, layerWeights, optim_state };
+    }
+    function memStateDetach(state) { 
+        if (!state) return null;
+        const detachedLayerWeights = {};
+        for (const key in state.layerWeights) {
+            if (Array.isArray(state.layerWeights[key])) {
+                detachedLayerWeights[key] = state.layerWeights[key].map(t => {
+                    if (t && !t.isDisposed) return tf.keep(t.clone());
+                    return null; 
+                }).filter(t => t !== null); 
+            } else {
+                detachedLayerWeights[key] = [];
+            }
+        }
+        const detachedOptimState = JSON.parse(JSON.stringify(state.optim_state || {})); 
+        return createNeuralMemState(state.seq_index, detachedLayerWeights, detachedOptimState);
+    }
+    function disposeMemStateWeights(state) { 
+        if (state && state.layerWeights) {
+            for (const key in state.layerWeights) {
+                if (Array.isArray(state.layerWeights[key])) {
+                    state.layerWeights[key].forEach(t => { if (t && !t.isDisposed) t.dispose(); });
+                }
+            }
+            state.layerWeights = {}; 
+        }
+    }
+    function disposeHnsResultsTensors(hnsResults) {
+        if (!hnsResults) return;
+        const tensorDictionaries = [
+            hnsResults.anomalies, 
+            hnsResults.weightChanges, 
+            hnsResults.buNorms, 
+            hnsResults.tdNorms, 
+            hnsResults.extNorms
+        ];
+        tensorDictionaries.forEach(dict => {
+            if (dict) {
+                Object.values(dict).forEach(tensor => {
+                    if (tensor && !tensor.isDisposed && typeof tensor.dispose === 'function') {
+                        tensor.dispose();
+                    }
+                });
+            }
+        });
+    }
+    class NMM_TD_V5_TFJS {
+        constructor(config) { 
+            this.levelName = config.name; this.dim = config.dim;
+            this.buInputDims = { ...(config.bu_input_dims || {}) }; 
+            this.tdInputDims = { ...(config.td_input_dims || {}) }; 
+            this.nmmParams = { 
+                mem_model_depth: 2, 
+                mem_model_expansion: 2.0,
+                learning_rate: 0.001, 
+                weight_decay: 0.001, 
+                beta1: 0.9, 
+                beta2: 0.999, 
+                max_grad_norm: 1.0,
+                external_signal_dim: config.nmm_params?.external_signal_dim || 0,
+                external_signal_role: config.nmm_params?.external_signal_role || 'none',
+                verbose: config.nmm_params?.verbose || false,
+            };
+            this.memoryModel = new MemoryMLP_TFJS(this.dim, this.nmmParams.mem_model_depth, this.nmmParams.mem_model_expansion, `${this.levelName}_mem_mlp`);
+            this.toValueTarget = new MemoryMLP_TFJS(this.dim, 1, this.dim, `${this.levelName}_val_proj`); 
+            this.buProjections = {};
+            for (const name in this.buInputDims) { this.buProjections[name] = new MemoryMLP_TFJS(this.buInputDims[name], 1, this.dim, `${this.levelName}_bu_proj_${name}`); }
+            this.tdProjections = {};
+            for (const name in this.tdInputDims) { this.tdProjections[name] = new MemoryMLP_TFJS(this.tdInputDims[name], 1, this.dim, `${this.levelName}_td_proj_${name}`); }
+            this.externalSignalProjection = null;
+            if (this.nmmParams.external_signal_dim > 0 && this.nmmParams.external_signal_role !== 'none') {
+                this.externalSignalProjection = new MemoryMLP_TFJS(this.nmmParams.external_signal_dim, 1, this.dim, `${this.levelName}_ext_proj`);
+            }
+            this.lossFn = (labels, predictions) => tf.losses.meanSquaredError(labels, predictions);
+            this.optimizer = tf.train.adam(
+                 this.nmmParams.learning_rate, 
+                 this.nmmParams.beta1, 
+                 this.nmmParams.beta2, 
+                 1e-7
+             ); 
+            this.isDisposed = false;
+        }
+        _getLayerWeights() { 
+            if (this.isDisposed) throw new Error(`${this.levelName} NMM is disposed.`);
+            const weights = { memoryModel: this.memoryModel.getWeights(), toValueTarget: this.toValueTarget.getWeights() };
+            for (const name in this.buProjections) { weights[`buProj_${name}`] = this.buProjections[name].getWeights(); }
+            for (const name in this.tdProjections) { weights[`tdProj_${name}`] = this.tdProjections[name].getWeights(); }
+            if (this.externalSignalProjection) { weights.externalSignalProjection = this.externalSignalProjection.getWeights(); }
+            return weights;
+        }
+        _applyLayerWeights(layerWeights) { 
+            if (this.isDisposed) throw new Error(`${this.levelName} NMM is disposed.`);
+            if (!layerWeights) return;
+            const tempClonedWeights = {};
+            for (const key in layerWeights) {
+                if (Array.isArray(layerWeights[key])) {
+                    tempClonedWeights[key] = layerWeights[key].map(t => t && !t.isDisposed ? t.clone() : null).filter(t => t);
+                }
+            }
+            this.memoryModel.setWeights(tempClonedWeights.memoryModel || []); 
+            this.toValueTarget.setWeights(tempClonedWeights.toValueTarget || []);
+            for (const name in this.buProjections) { this.buProjections[name].setWeights(tempClonedWeights[`buProj_${name}`] || []); }
+            for (const name in this.tdProjections) { this.tdProjections[name].setWeights(tempClonedWeights[`tdProj_${name}`] || []); }
+            if (this.externalSignalProjection && tempClonedWeights.externalSignalProjection) { this.externalSignalProjection.setWeights(tempClonedWeights.externalSignalProjection || []); }
+            for (const key in tempClonedWeights) {
+                if (Array.isArray(tempClonedWeights[key])) {
+                    tempClonedWeights[key].forEach(t => { if (t && !t.isDisposed) t.dispose(); });
+                }
+            }
+        }
+        getInitialState() { 
+            if (this.isDisposed) throw new Error(`${this.levelName} NMM is disposed.`);
+            return createNeuralMemState(0, this._getLayerWeights(), { lr: this.nmmParams.learning_rate, wd: this.nmmParams.weight_decay });
+        }
+       _calculateWeightChange(oldWeightsMap, newWeightsMap) { 
+            return tf.tidy(`${this.levelName}_WeightChange`,() => {
+                let totalDiffSqSum = tf.tensor(0.0); 
+                 for (const key in newWeightsMap) { 
+                     const oldWArray = oldWeightsMap[key]; const newWArray = newWeightsMap[key];
+                     if (oldWArray && newWArray && oldWArray.length === newWArray.length) {
+                         for (let i = 0; i < newWArray.length; i++) { 
+                             const oldW = oldWArray[i]; const newW = newWArray[i];
+                             if (oldW && newW && !oldW.isDisposed && !newW.isDisposed && oldW.shape.toString() === newW.shape.toString()) {
+                                 const diff = newW.sub(oldW);
+                                 totalDiffSqSum = totalDiffSqSum.add(diff.square().sum());
+                                 diff.dispose();
+                             }
+                         }
+                     }
+                 } 
+                return tf.keep(totalDiffSqSum.sqrt());
+            });
+        }
+        forwardStep(buInputs, tdSignals, currentState, externalSignal = null, detachNextState = true) {
+            if (this.isDisposed) throw new Error(`${this.levelName} NMM is disposed.`);
+            const oldWeightsForChangeCalc = this._getLayerWeights();
+            this._applyLayerWeights(currentState.layerWeights); 
+            const resultsTidy = tf.tidy(`${this.levelName}_NMM_ForwardStep_And_Train`, () => { 
+                const preparedInputs = tf.tidy(`${this.levelName}_InputPrep`, () => {
+                    const projectedBuSignals = [];
+                    for (const name in buInputs) {
+                        if (this.buProjections[name] && buInputs[name] && !buInputs[name].isDisposed && buInputs[name].shape) {
+                            projectedBuSignals.push(this.buProjections[name].call(buInputs[name].reshape([-1, this.buInputDims[name]])));
+                        } else {
+                            projectedBuSignals.push(tf.zeros([1, this.dim]));
+                        }
+                    }
+                    const combBu = projectedBuSignals.length > 0 ? tf.addN(projectedBuSignals) : tf.zeros([1, this.dim]);
+                    projectedBuSignals.forEach(t => {if (t && !t.isDisposed) t.dispose(); });
+                    const cBuNorm = tf.norm(combBu);
+                    const projectedTdSignals = [];
+                    for (const name in tdSignals) {
+                        if (this.tdProjections[name] && tdSignals[name] && !tdSignals[name].isDisposed && tdSignals[name].shape) {
+                            projectedTdSignals.push(this.tdProjections[name].call(tdSignals[name].reshape([-1, this.tdInputDims[name]])));
+                        } else {
+                           projectedTdSignals.push(tf.zeros([1, this.dim]));
+                        }
+                    }
+                    const combTd = projectedTdSignals.length > 0 ? tf.addN(projectedTdSignals) : tf.zeros([1, this.dim]);
+                    projectedTdSignals.forEach(t => {if (t && !t.isDisposed) t.dispose(); });
+                    const cTdNorm = tf.norm(combTd);
+                    let projExtSig = null; 
+                    let cExtNorm = tf.tensor(0.0);
+                    if (this.nmmParams.external_signal_role !== 'none' && this.externalSignalProjection) {
+                        if (externalSignal && !externalSignal.isDisposed && externalSignal.shape && externalSignal.shape[externalSignal.shape.length -1] === this.nmmParams.external_signal_dim) {
+                           projExtSig = this.externalSignalProjection.call(externalSignal.reshape([-1, this.nmmParams.external_signal_dim]));
+                        } else { 
+                            projExtSig = tf.zeros([1, this.dim]); 
+                        }
+                        cExtNorm.dispose(); 
+                        cExtNorm = tf.norm(projExtSig);
+                    }
+                    let keyBaseForPredictionTarget = combBu.clone(); 
+                    if (this.nmmParams.external_signal_role === 'add_to_bu' && projExtSig) {
+                        keyBaseForPredictionTarget = keyBaseForPredictionTarget.add(projExtSig);
+                    }
+                    let mInput = combBu.add(combTd); 
+                    if (this.nmmParams.external_signal_role === 'add_to_bu' && projExtSig) {
+                        mInput = mInput.add(projExtSig);
+                    } else if (this.nmmParams.external_signal_role === 'add_to_td' && projExtSig) {
+                        mInput = mInput.add(projExtSig);
+                    }
+                    let fValTarget = this.toValueTarget.call(keyBaseForPredictionTarget);
+                    if (this.nmmParams.external_signal_role === 'add_to_target' && projExtSig) {
+                        fValTarget = fValTarget.add(projExtSig);
+                    }
+                    return { memInput: mInput, finalValTarget: fValTarget, currentBuNorm: cBuNorm, currentTdNorm: cTdNorm, currentExtNorm: cExtNorm };
+                }); 
+                const keptBuNorm = tf.keep(preparedInputs.currentBuNorm);
+                const keptTdNorm = tf.keep(preparedInputs.currentTdNorm);
+                const keptExtNorm = tf.keep(preparedInputs.currentExtNorm);
+                const predictionBeforeTrain = this.memoryModel.call(preparedInputs.memInput); 
+                const keptPredictionForOutput = tf.keep(predictionBeforeTrain.clone().reshape([1, 1, this.dim]));
+                let currentLossTensor = tf.tensor(0.0);
+                const trainableVarsForOptimizer = [];
+                this.memoryModel.getTrainableVariables().forEach(v => trainableVarsForOptimizer.push(v));
+                if (this.externalSignalProjection && this.nmmParams.external_signal_role !== 'none' && this.nmmParams.external_signal_dim > 0) {
+                     this.externalSignalProjection.getTrainableVariables().forEach(v => trainableVarsForOptimizer.push(v));
+                }
+                if (trainableVarsForOptimizer.length > 0) {
+                    const calculateLossFn = () => {
+                        const currentPred = this.memoryModel.call(preparedInputs.memInput); 
+                        let mseLoss = this.lossFn(preparedInputs.finalValTarget, currentPred); 
+                        if (this.nmmParams.weight_decay > 0) {
+                            let l2Loss = tf.tensor(0.0);
+                            trainableVarsForOptimizer.forEach(v => {
+                                if (v.name.includes('kernel')) { 
+                                    l2Loss = l2Loss.add(v.square().sum());
+                                }
+                            });
+                            mseLoss = mseLoss.add(l2Loss.mul(this.nmmParams.weight_decay / 2));
+                            l2Loss.dispose();
+                        }
+                        return mseLoss;
+                    };
+                    if (this.nmmParams.max_grad_norm && this.nmmParams.max_grad_norm > 0) {
+                        const {value, grads} = this.optimizer.computeGradients(calculateLossFn, trainableVarsForOptimizer);
+                        currentLossTensor.dispose(); 
+                        currentLossTensor = value ? tf.keep(value) : tf.keep(tf.tensor(0.0));
+                         if (grads) {
+                            const gradArray = trainableVarsForOptimizer.map(v => grads[v.name]).filter(g => g && !g.isDisposed);
+                            let finalGradsForApply = {}; 
+                            if (gradArray.length > 0) {
+                                const globalNorm = tf.tidy('globalNormCalc', () => {
+                                    let totalNormSq = tf.scalar(0.0);
+                                    for (const grad of gradArray) { totalNormSq = totalNormSq.add(tf.norm(grad).square()); }
+                                    return totalNormSq.sqrt();
+                                });
+                                const globalNormVal = globalNorm.dataSync()[0]; 
+                                globalNorm.dispose(); 
+                                let clipRatioScalar = null;
+                                if (globalNormVal > this.nmmParams.max_grad_norm) {
+                                    clipRatioScalar = tf.scalar(this.nmmParams.max_grad_norm / (globalNormVal + 1e-6));
+                                }
+                                trainableVarsForOptimizer.forEach(v => {
+                                    if (grads[v.name] && !grads[v.name].isDisposed) {
+                                        finalGradsForApply[v.name] = clipRatioScalar ? grads[v.name].mul(clipRatioScalar) : grads[v.name].clone();
+                                    }
+                                });
+                                if (clipRatioScalar) clipRatioScalar.dispose();
+                            }
+                            this.optimizer.applyGradients(finalGradsForApply);
+                            trainableVarsForOptimizer.forEach(v => { if (grads[v.name] && !grads[v.name].isDisposed) grads[v.name].dispose(); });
+                            Object.values(finalGradsForApply).forEach(g => {if (g && !g.isDisposed) g.dispose(); });
+                         }
+                    } else { 
+                        const lossTensorFromOptimizer = this.optimizer.minimize(calculateLossFn, true, trainableVarsForOptimizer); 
+                        currentLossTensor.dispose();
+                        currentLossTensor = lossTensorFromOptimizer ? tf.keep(lossTensorFromOptimizer) : tf.keep(tf.tensor(0.0));
+                    }
+                }
+                return { prediction: keptPredictionForOutput, loss: currentLossTensor, buNorm: keptBuNorm, tdNorm: keptTdNorm, extNorm: keptExtNorm };
+            }); 
+            const retrievedValForOutput = resultsTidy.prediction; 
+            const lossVal = resultsTidy.loss; 
+            const buNormVal = resultsTidy.buNorm; 
+            const tdNormVal = resultsTidy.tdNorm; 
+            const extNormVal = resultsTidy.extNorm;
+            const newModelWeightsAfterTraining = this._getLayerWeights();
+            const weightChangeVal = this._calculateWeightChange(oldWeightsForChangeCalc, newModelWeightsAfterTraining);
+            Object.values(oldWeightsForChangeCalc).forEach(arr => arr.forEach(t => { if (t && !t.isDisposed) t.dispose(); }));
+            const nextStateInterim = createNeuralMemState(currentState.seq_index + 1, newModelWeightsAfterTraining, currentState.optim_state);
+            const nextStateFinal = detachNextState ? memStateDetach(nextStateInterim) : nextStateInterim;
+            if (detachNextState) { disposeMemStateWeights(nextStateInterim); }
+            return { retrievedVal: retrievedValForOutput, nextState: nextStateFinal, anomalyScore: lossVal, weightChange: weightChangeVal, buNorm: buNormVal, tdNorm: tdNormVal, extNorm: extNormVal };
+        }
+        dispose() { 
+            if (this.isDisposed) return;
+            this.memoryModel.dispose(); this.toValueTarget.dispose();
+            Object.values(this.buProjections).forEach(p => p.dispose()); Object.values(this.tdProjections).forEach(p => p.dispose());
+            if(this.externalSignalProjection) this.externalSignalProjection.dispose();
+            this.isDisposed = true;
+        }
+    }
+    class HierarchicalSystemV5_TFJS {
+        constructor(levelConfigsHLC, globalSimConfig) { 
+            this.levelConfigsOriginal = JSON.parse(JSON.stringify(levelConfigsHLC)); 
+            this.globalConfig = globalSimConfig; 
+            this.numLevels = 0; this.levels = []; 
+            this.levelNameToIndex = {}; this.dims = {}; this.isDisposed = false;
+            this.level_expected_external_details = []; 
+            this._initializeLevels();
+        }
+        _initializeLevels() {
+            this.levelConfigsOriginal.forEach((cfg, i) => {
+                if (!cfg.name || !cfg.dim) throw new Error(`Level ${i} config missing name or dim.`);
+                this.levelNameToIndex[cfg.name] = i; this.dims[cfg.name] = cfg.dim;
+            });
+            this.levelConfigsOriginal.forEach((hlc_level_cfg, i) => {
+                const nmmConstructorConfig = { 
+                    name: hlc_level_cfg.name,
+                    dim: hlc_level_cfg.dim,
+                    bu_input_dims: {},
+                    td_input_dims: {},
+                    nmm_params: { 
+                        verbose: this.globalConfig.HNM_VERBOSE || false,
+                        learning_rate: 0.001, weight_decay: 0.001, beta1: 0.9, beta2: 0.999, max_grad_norm: 1.0,
+                        external_signal_dim: 0, external_signal_role: 'none',
+                        mem_model_depth: 2, mem_model_expansion: 2.0,
+                        ...(hlc_level_cfg.nmm_params || {}) 
+                    }
+                };
+                if (!hlc_level_cfg.bu_source_level_names || hlc_level_cfg.bu_source_level_names.length === 0) { 
+                    if (!hlc_level_cfg.raw_sensory_input_dim || hlc_level_cfg.raw_sensory_input_dim <= 0) { throw new Error(`Lvl '${hlc_level_cfg.name}' is a sensory level but lacks a valid 'raw_sensory_input_dim'.`); }
+                    nmmConstructorConfig.bu_input_dims[hlc_level_cfg.name] = hlc_level_cfg.raw_sensory_input_dim;
+                } else { 
+                    hlc_level_cfg.bu_source_level_names.forEach(srcName => {
+                        if (!this.dims[srcName]) throw new Error(`Unknown BU source '${srcName}' for level '${hlc_level_cfg.name}'.`);
+                        nmmConstructorConfig.bu_input_dims[srcName] = this.dims[srcName];
+                    });
+                }
+                if (hlc_level_cfg.td_source_level_names) {
+                     hlc_level_cfg.td_source_level_names.forEach(srcName => {
+                        if (!this.dims[srcName]) throw new Error(`Unknown TD source '${srcName}' for level '${hlc_level_cfg.name}'.`);
+                        nmmConstructorConfig.td_input_dims[srcName] = this.dims[srcName];
+                    });
+                }
+                let expectedNmmExtSourceName = null;
+                let nmmExtSignalDimForNMM = 0;
+                let nmmExtSignalRoleForNMM = nmmConstructorConfig.nmm_params.external_signal_role; 
+                const specificExtConfig = hlc_level_cfg.external_input_config; 
+                if (specificExtConfig && specificExtConfig.source_signal_name && specificExtConfig.dim > 0) {
+                    expectedNmmExtSourceName = specificExtConfig.source_signal_name;
+                    nmmExtSignalDimForNMM = specificExtConfig.dim;
+                    if (specificExtConfig.role) {
+                        nmmExtSignalRoleForNMM = specificExtConfig.role;
+                    } else if (nmmExtSignalDimForNMM > 0 && nmmExtSignalRoleForNMM === 'none') {
+                        nmmExtSignalRoleForNMM = 'add_to_bu';
+                    }
+                }
+                nmmConstructorConfig.nmm_params.external_signal_dim = nmmExtSignalDimForNMM;
+                nmmConstructorConfig.nmm_params.external_signal_role = nmmExtSignalRoleForNMM;
+                this.level_expected_external_details[i] = { name: expectedNmmExtSourceName, dim: nmmExtSignalDimForNMM };
+                this.levels.push(new NMM_TD_V5_TFJS(nmmConstructorConfig));
+            });
+            this.numLevels = this.levels.length;
+        }
+        getInitialStates() { 
+            if (this.isDisposed) throw new Error(`HNS is disposed.`);
+            return this.levels.map(level => level.getInitialState());
+        }
+        step(currentBotLevelStates, currentBotLastStepOutputs, sensoryInputs, externalInputsAllSources = {}, detachNextStatesMemory = true) {
+            if (this.isDisposed) throw new Error(`HNS is disposed.`);
+            const nextBotLevelStatesList = new Array(this.numLevels).fill(null);
+            const newlyRetrievedValuesForAllLevelsDict = {}; 
+            const stepAnomalies = {}; const stepWeightChanges = {}; 
+            const stepBuNorms = {}; const stepTdNorms = {}; const stepExternalNorms = {};
+            const currentStepIntermediateOutputs = {}; 
+            for (let i = 0; i < this.numLevels; i++) {
+                const lvlMgr = this.levels[i]; const cfg = this.levelConfigsOriginal[i];
+                const lvlName = cfg.name; const buSrcNames = cfg.bu_source_level_names || []; const tdSrcNames = cfg.td_source_level_names || [];
+                const currentLevelSpecificState = currentBotLevelStates[i]; 
+                const lvlBuIn = {}; const lvlTdIn = {}; 
+                if (buSrcNames.length === 0) { 
+                    const rawSensoryDim = cfg.raw_sensory_input_dim; const sensoryInputTensor = sensoryInputs[lvlName]; 
+                    if (sensoryInputTensor && !sensoryInputTensor.isDisposed && sensoryInputTensor.shape && sensoryInputTensor.shape.length === 3 && sensoryInputTensor.shape[0] === 1 && sensoryInputTensor.shape[1] === 1 && sensoryInputTensor.shape[2] === rawSensoryDim) {
+                        lvlBuIn[lvlName] = sensoryInputTensor;
+                    } else {
+                        lvlBuIn[lvlName] = tf.keep(tf.zeros([1, 1, rawSensoryDim])); 
+                    }
+                } else { 
+                    buSrcNames.forEach(srcName => {
+                        const buSourceOutput = currentStepIntermediateOutputs[srcName]; 
+                        if (buSourceOutput && !buSourceOutput.isDisposed) { lvlBuIn[srcName] = buSourceOutput; }
+                        else { lvlBuIn[srcName] = tf.keep(tf.zeros([1, 1, this.dims[srcName]])); }
+                    });
+                }
+                tdSrcNames.forEach(srcName => { 
+                    const tdSourceOutput = currentBotLastStepOutputs[srcName]?.retrievedVal; 
+                    if (tdSourceOutput && !tdSourceOutput.isDisposed) { lvlTdIn[srcName] = tdSourceOutput; }
+                    else { lvlTdIn[srcName] = tf.keep(tf.zeros([1, 1, this.dims[srcName]])); }
+                });
+                let lvlExtInForNMMStep = null;
+                const expectedExternal = this.level_expected_external_details[i];
+                if (expectedExternal && expectedExternal.name && expectedExternal.dim > 0) {
+                    const providedSignal = externalInputsAllSources[expectedExternal.name];
+                    if (providedSignal && !providedSignal.isDisposed && providedSignal.shape && providedSignal.shape.length === 3 && providedSignal.shape[0] === 1 && providedSignal.shape[1] === 1 && providedSignal.shape[2] === expectedExternal.dim) {
+                        lvlExtInForNMMStep = providedSignal;
+                    } else {
+                        lvlExtInForNMMStep = tf.keep(tf.zeros([1,1,expectedExternal.dim])); 
+                    }
+                }
+                const nmmOutputs = lvlMgr.forwardStep(lvlBuIn, lvlTdIn, currentLevelSpecificState, lvlExtInForNMMStep, detachNextStatesMemory);
+                nextBotLevelStatesList[i] = nmmOutputs.nextState;
+                currentStepIntermediateOutputs[lvlName] = tf.keep(nmmOutputs.retrievedVal.clone()); 
+                newlyRetrievedValuesForAllLevelsDict[lvlName] = nmmOutputs.retrievedVal; 
+                stepAnomalies[lvlName] = nmmOutputs.anomalyScore;
+                stepWeightChanges[lvlName] = nmmOutputs.weightChange;
+                stepBuNorms[lvlName] = nmmOutputs.buNorm;
+                stepTdNorms[lvlName] = nmmOutputs.tdNorm;
+                stepExternalNorms[lvlName] = nmmOutputs.extNorm;
+                Object.entries(lvlBuIn).forEach(([key, t]) => { 
+                    if (t !== sensoryInputs[lvlName] && t !== currentStepIntermediateOutputs[key] && t.rank === 3 && t.shape[0] === 1 && !t.isDisposed && t.dataSync().every(v => v ===0) ) t.dispose(); 
+                });
+                Object.entries(lvlTdIn).forEach(([key, t]) => { 
+                    if (t !== currentBotLastStepOutputs[key]?.retrievedVal && t.rank === 3 && t.shape[0] === 1 && !t.isDisposed && t.dataSync().every(v => v ===0) ) t.dispose(); 
+                });
+                if (lvlExtInForNMMStep && lvlExtInForNMMStep !== externalInputsAllSources[expectedExternal?.name] && lvlExtInForNMMStep.rank === 3 && lvlExtInForNMMStep.shape[0] === 1 && !lvlExtInForNMMStep.isDisposed && lvlExtInForNMMStep.dataSync().every(v => v ===0) ) lvlExtInForNMMStep.dispose();
+            } 
+            Object.values(currentStepIntermediateOutputs).forEach(t => { if (t && !t.isDisposed) t.dispose(); });
+            return { newlyRetrievedValues: newlyRetrievedValuesForAllLevelsDict, nextBotStates: nextBotLevelStatesList, anomalies: stepAnomalies, weightChanges: stepWeightChanges, buNorms: stepBuNorms, tdNorms: stepTdNorms, extNorms: stepExternalNorms };
+        }
+        dispose() { 
+            if (this.isDisposed) return;
+            this.levels.forEach(l => {if (l && typeof l.dispose === 'function') l.dispose();});
+            this.levels = []; this.isDisposed = true;
+        }
+    }
+    const canvasEl = document.getElementById('gridCanvas');
+    const ctxGrid = canvasEl.getContext('2d');
+    const statusEl = document.getElementById('status');
+    const roundInfoEl = document.getElementById('round-info');
+    const playerInfoEl = document.getElementById('player-info');
+    const gridContainerEl = document.querySelector('.grid-container');
+    const botsInfoContainerEl = document.getElementById('bots-info-container');
+    const targetIndicatorEl = document.getElementById('target-indicator');
+    let gui;
+    let guiControllers = {}; 
+    let guiTfjsInfo = { backend: 'N/A', memory: 'N/A', numTensors: 'N/A', numDataBuffers: 'N/A' };
+    let DEFAULT_CONFIG = {
+        "SIMULATION_SPEED_MS": 50, "FREEZE_DURATION": 15,
+        "MENTAL_ATTACK_RANGE": 3, "MENTAL_ATTACK_DURATION": 30, "MENTAL_ATTACK_USES_RECONSTRUCTION": true,
+        "NUM_ACTIONS": 7, 
+        "GRID_SIZE": 20, "NUM_GOALS": 5, "NUM_HC_BOTS": 1, "NUM_LEARNING_BOTS": 2,
+        "MAX_STEPS_PER_ROUND": 500, "VISIBILITY_RANGE": 8, "RANDOMIZE_ENV_PER_ROUND": true,
+        "OBSTACLES_FACTOR_MIN": 0.03, "OBSTACLES_FACTOR_MAX": 0.08, 
+        "MIN_GOAL_START_DISTANCE_FACTOR": 0.15, "MIN_BOT_START_DISTANCE_FACTOR": 0.25, "MIN_BOT_GOAL_DISTANCE_FACTOR": 0.15, 
+        "SENSORY_INPUT_DIM": 22, 
+        "HIERARCHY_LEVEL_CONFIGS": [], 
+        "POLICY_HEAD_INPUT_LEVEL_NAME": "L2_Executive", 
+        "USE_RULES_AS_HNS_INPUT": true, 
+        "LEARNING_BOT_BASE_EXPLORATION_RATE": 15.0, "LEARNING_BOT_RULE_EXPLORE_PERCENT": 60.0, "PLAYER_CONTROL_PERCENT": 100.0,
+        "AUTOSTART_SIMULATION": false, 
+        "HNM_VERBOSE": false,
+    };
+    DEFAULT_CONFIG.HIERARCHY_LEVEL_CONFIGS = [ 
+        {   
+            name: "L0_SensoryMotor", dim: 64, raw_sensory_input_dim: DEFAULT_CONFIG.SENSORY_INPUT_DIM,
+            bu_source_level_names: [], 
+            td_source_level_names: ["L1_Context"],
+            external_input_config: null, 
+            nmm_params: { 
+                mem_model_depth: 2, mem_model_expansion: 2.0,
+                learning_rate: 0.001, weight_decay: 0.0001, beta1: 0.9, beta2: 0.999,
+                max_grad_norm: 1.0, external_signal_role: "add_to_bu"
+            }
+        },
+        {   
+            name: "L1_Context", dim: 96,
+            bu_source_level_names: ["L0_SensoryMotor"], 
+            td_source_level_names: ["L2_Executive"],
+            external_input_config: null, 
+            nmm_params: { 
+                mem_model_depth: 2, mem_model_expansion: 2.0,
+                learning_rate: 0.001, weight_decay: 0.0001, beta1: 0.9, beta2: 0.999,
+                max_grad_norm: 1.0, external_signal_role: "none"
+            }
+        },
+        {   
+            name: "L2_Executive", dim: 128,
+            bu_source_level_names: ["L1_Context"], 
+            td_source_level_names: [],
+            external_input_config: null, 
+            nmm_params: { 
+                mem_model_depth: 3, mem_model_expansion: 2.0,
+                learning_rate: 0.0005, weight_decay: 0.00005, beta1: 0.9, beta2: 0.999,
+                max_grad_norm: 1.0, external_signal_role: "none"
+            }
+        }
+    ];
+    let appliedConfig = {}; 
+    let guiConfig = {};     
+    const simulationActions = {
+        start: () => startSimulation(),
+        stop: () => stopSimulation(),
+        newRound: () => handleResetRound(),
+        resetAll: () => handleResetFull(),
+        joinGame: () => handleJoinGame(null),
+        leaveBot: () => handleLeaveGame(),
+        applyChanges: () => handleApplyParams(),
+        saveParams: () => saveParamsToLocalStorage(),
+        loadParams: () => loadParamsFromLocalStorage(),
+        resetToDefault: () => resetParamsToDefaultUI()
+    };
+    let clientState = { environment: null, bots: {}, round: 0, stats: { hc_total_goals: 0, learning_total_goals: 0 }, isRunning: false, needsFullReset: false, needsRoundReset: false, playerBotId: null, playerOriginalBotId: null, playerTarget: null, hnsSystem: null };
+    let visualizer = null;
+    const LOCAL_STORAGE_KEY_UI = 'hierarchicalMultiBotSimParams_v6.4.0_TFJS_lilgui_enhanced';
+    const LOCAL_STORAGE_KEY_PLAYER = 'hierarchicalMultiBotPlayerControl_v6.4.0_TFJS_lilgui_enhanced';
+    let simulation_loop_task = null; let isDragging = false; let lastSentTargetTime = 0; const TARGET_UPDATE_INTERVAL_MS = 100;
+    let player_direct_actions = {}; 
+    async function setupTfBackend() {
+        try { await tf.setBackend('webgl'); } catch (e) { try { await tf.setBackend('wasm'); } catch (eWasm) { await tf.setBackend('cpu'); } }
+        await tf.ready(); 
+        const backend = tf.getBackend(); 
+        guiTfjsInfo.backend = backend;
+        if (guiControllers.tfjsBackend) guiControllers.tfjsBackend.updateDisplay();
+        updateTfMemoryDisplay();
+    }
+    function updateTfMemoryDisplay() {
+        requestAnimationFrame(() => { 
+            const mem = tf.memory();
+            guiTfjsInfo.memory = `${(mem.numBytes / 1024 / 1024).toFixed(2)} MB`;
+            guiTfjsInfo.numTensors = mem.numTensors.toString();
+            guiTfjsInfo.numDataBuffers = mem.numDataBuffers.toString();
+            if (guiControllers.tfjsMemory) guiControllers.tfjsMemory.updateDisplay();
+            if (guiControllers.tfjsNumTensors) guiControllers.tfjsNumTensors.updateDisplay();
+            if (guiControllers.tfjsNumDataBuffers) guiControllers.tfjsNumDataBuffers.updateDisplay();
+        });
+    }
+    class GridEnvironment_JS { 
+        constructor(size, num_goals, obstacles_factor_range, num_hc_bots, num_learning_bots, config_factors) {
+            this.size = Math.max(10, parseInt(size)); this.num_goals_initial = Math.max(0, parseInt(num_goals));
+            this.min_obstacles_factor = obstacles_factor_range[0]; this.max_obstacles_factor = obstacles_factor_range[1];
+            this.num_hc_bots = Math.max(0, parseInt(num_hc_bots)); this.num_learning_bots = Math.max(0, parseInt(num_learning_bots));
+            this.config_factors = { 'goal_dist': config_factors.MIN_GOAL_START_DISTANCE_FACTOR || 0.15, 'bot_dist': config_factors.MIN_BOT_START_DISTANCE_FACTOR || 0.25, 'bot_goal_dist': config_factors.MIN_BOT_GOAL_DISTANCE_FACTOR || 0.15 };
+            this.obstacles = new Set(); this.goals = []; this.claimed_goals = new Set(); this.start_positions = []; this._initial_goals = [];
+            try { this.randomize(); }
+            catch (e) {
+                console.error("FATAL ERROR during environment initialization: " + e.message);
+                this.size = 10; this.num_goals_initial = 0; this.num_hc_bots = 0; this.num_learning_bots = 0;
+                this.goals = []; this.obstacles = new Set(); this.start_positions = []; this._initial_goals = [];
+            }
+        }
+        _manhattan_distance(pos1, pos2) { if (!pos1 || !pos2 || pos1.x === undefined || pos1.y === undefined || pos2.x === undefined || pos2.y === undefined) return Infinity; return Math.abs(pos1.x - pos2.x) + Math.abs(pos1.y - pos2.y); }
+        randomize() {
+            this.obstacles.clear(); this.goals = []; this.claimed_goals.clear(); this.start_positions = [];
+            const total_bots = this.num_hc_bots + this.num_learning_bots; const total_cells = this.size * this.size; const required_items = total_bots + this.num_goals_initial;
+            if (total_cells <= 0) throw new Error("Grid size must be positive.");
+            const occupied = new Set(); const max_placement_attempts = Math.max(required_items * 100, total_cells * 20); let attempts = 0;
+            const is_valid_placement = (pos_tuple_arr, current_occupied_set, check_dists = {}) => {
+                const [x,y] = pos_tuple_arr; if (!(x >= 0 && x < this.size && y >= 0 && y < this.size)) return false; if (current_occupied_set.has(`${x},${y}`)) return false;
+                const pos_dict = { x, y };
+                if (check_dists.goal_min_dist && this.goals.some(g => this._manhattan_distance(pos_dict, g) < check_dists.goal_min_dist)) return false;
+                if (check_dists.bot_min_dist && this.start_positions.some(sp => this._manhattan_distance(pos_dict, sp) < check_dists.bot_min_dist)) return false;
+                if (check_dists.bot_goal_min_dist && this.goals.some(g => this._manhattan_distance(pos_dict, g) < check_dists.bot_goal_min_dist)) return false;
+                return true;
+            };
+            const min_goal_dist = Math.max(2, Math.floor(this.size * this.config_factors.goal_dist)); let goal_id_counter = 0; attempts = 0;
+            while (this.goals.length < this.num_goals_initial && attempts < max_placement_attempts) {
+                attempts++; const pos_arr = [Math.floor(Math.random() * this.size), Math.floor(Math.random() * this.size)];
+                if (is_valid_placement(pos_arr, occupied, { goal_min_dist: min_goal_dist })) { const goal = { x: pos_arr[0], y: pos_arr[1], id: `G${goal_id_counter}` }; this.goals.push(goal); occupied.add(`${pos_arr[0]},${pos_arr[1]}`); goal_id_counter++; }
+            }
+            const min_bot_dist = Math.max(3, Math.floor(this.size * this.config_factors.bot_dist)); const min_bot_goal_dist = Math.max(3, Math.floor(this.size * this.config_factors.bot_goal_dist)); attempts = 0;
+            let hc_placed_count = 0; let ln_placed_count = 0;
+            while (this.start_positions.length < total_bots && attempts < max_placement_attempts) {
+                attempts++; const pos_arr = [Math.floor(Math.random() * this.size), Math.floor(Math.random() * this.size)];
+                if (is_valid_placement(pos_arr, occupied, { bot_min_dist: min_bot_dist, bot_goal_min_dist: min_bot_goal_dist })) {
+                     const bot_type = hc_placed_count < this.num_hc_bots ? 'Hardcoded' : 'Learning'; const bot_num_in_type = bot_type === 'Hardcoded' ? hc_placed_count : ln_placed_count;
+                     const bot_id = `${bot_type[0]}${bot_num_in_type}`; this.start_positions.push({ x: pos_arr[0], y: pos_arr[1], type: bot_type, id: bot_id });
+                     occupied.add(`${pos_arr[0]},${pos_arr[1]}`); if (bot_type === 'Hardcoded') hc_placed_count++; else ln_placed_count++;
+                }
+            }
+            if (this.start_positions.length < total_bots) { this.num_hc_bots = this.start_positions.filter(b => b.type === 'Hardcoded').length; this.num_learning_bots = this.start_positions.filter(b => b.type === 'Learning').length; }
+            const num_obstacles_to_place_calc = total_cells > 0 ? Math.floor(Math.random() * (total_cells * this.max_obstacles_factor - total_cells * this.min_obstacles_factor + 1)) + Math.floor(total_cells * this.min_obstacles_factor) : 0;
+            const num_obstacles_to_place = Math.max(0, num_obstacles_to_place_calc); 
+            attempts = 0; let placed_obstacles = 0;
+            while (placed_obstacles < num_obstacles_to_place && attempts < max_placement_attempts) {
+                attempts++; const pos_arr = [Math.floor(Math.random() * this.size), Math.floor(Math.random() * this.size)];
+                if (is_valid_placement(pos_arr, occupied)) { this.obstacles.add(`${pos_arr[0]},${pos_arr[1]}`); occupied.add(`${pos_arr[0]},${pos_arr[1]}`); placed_obstacles++; }
+            }
+            this._initial_goals = this.goals.map(g => ({ ...g }));
+        }
+        reset_round_state() { this.claimed_goals.clear(); this.goals = this._initial_goals.map(g => ({ ...g })); }
+        is_valid(pos) { if (!pos || pos.x === undefined || pos.y === undefined) return false; return pos.x >= 0 && pos.x < this.size && pos.y >= 0 && pos.y < this.size && !this.obstacles.has(`${pos.x},${pos.y}`); }
+        find_path(start_pos, goal_pos, all_bots_dict = {}, moving_bot_id = null) {
+            if (!this.is_valid(start_pos) || !goal_pos || !(goal_pos.x >= 0 && goal_pos.x < this.size && goal_pos.y >= 0 && goal_pos.y < this.size )) return null;
+            const start_tuple_str = `${start_pos.x},${start_pos.y}`; const goal_tuple_str = `${goal_pos.x},${goal_pos.y}`; if (start_tuple_str === goal_tuple_str) return [];
+            const current_obstacles_for_path = new Set(this.obstacles);
+            if (all_bots_dict) { for (const bot_id in all_bots_dict) { if (bot_id === moving_bot_id) continue; const bot_state = all_bots_dict[bot_id]; current_obstacles_for_path.add(`${bot_state.pos.x},${bot_state.pos.y}`); } }
+            const queue = [[start_pos, []]]; const visited = new Set([start_tuple_str]);
+            const deltas = [{dx:0, dy:-1, action:0}, {dx:0, dy:1, action:1}, {dx:-1, dy:0, action:2}, {dx:1, dy:0, action:3}]; 
+            const max_path_len = this.size * this.size;
+            while (queue.length > 0) {
+                const [current_node_pos, path] = queue.shift(); if (path.length >= max_path_len) continue;
+                for (const {dx, dy, action} of deltas) {
+                    const next_x = current_node_pos.x + dx; const next_y = current_node_pos.y + dy; const next_pos_str = `${next_x},${next_y}`;
+                    if (next_pos_str === goal_tuple_str) return [...path, action];
+                    if (next_x >= 0 && next_x < this.size && next_y >= 0 && next_y < this.size && !current_obstacles_for_path.has(next_pos_str) && !visited.has(next_pos_str)) { visited.add(next_pos_str); queue.push([{x: next_x, y: next_y}, [...path, action]]); }
+                }
+            } return null;
+        }
+        get_sensory_data(acting_bot, all_bots_dict, visibility_range) {
+            const bot_pos = acting_bot.pos; const vis_range = Math.max(1, parseInt(visibility_range));
+            let senses = { 'wall_distance_N': bot_pos.y, 'wall_distance_S': this.size - 1 - bot_pos.y, 'wall_distance_W': bot_pos.x, 'wall_distance_E': this.size - 1 - bot_pos.x, 'nearest_goal_dist': vis_range + 1, 'nearest_goal_dx': 0, 'nearest_goal_dy': 0, 'num_visible_goals': 0, 'nearest_opponent_dist': vis_range + 1, 'nearest_opponent_dx': 0, 'nearest_opponent_dy': 0, 'opponent_is_frozen': 0.0, 'opponent_type_HC': 0.0, 'opponent_type_LN': 0.0, 'opponent_type_PL': 0.0, 'self_is_frozen': (acting_bot.freezeTimer > 0 ? 1.0 : 0.0), 'is_hallucinating': (acting_bot.mental_attack_timer > 0 ? 1.0 : 0.0), '_visibleGoals': [], '_nearestOpponent': null };
+            let min_goal_dist = vis_range + 1; let nearest_goal_obj = null;
+            this.goals.forEach(goal => { if (!this.claimed_goals.has(goal.id)) { const dist = this._manhattan_distance(bot_pos, goal); if (dist <= vis_range) { senses.num_visible_goals++; senses._visibleGoals.push({ ...goal, dist }); if (dist < min_goal_dist) { min_goal_dist = dist; nearest_goal_obj = goal; } } } });
+            senses.nearest_goal_dist = min_goal_dist; if (nearest_goal_obj) { senses.nearest_goal_dx = nearest_goal_obj.x - bot_pos.x; senses.nearest_goal_dy = nearest_goal_obj.y - bot_pos.y; }
+            let min_opp_dist = vis_range + 1; let nearest_opponent_obj = null;
+            for (const opp_id in all_bots_dict) { if (opp_id === acting_bot.id) continue; const opponent_bot = all_bots_dict[opp_id]; const dist = this._manhattan_distance(bot_pos, opponent_bot.pos); if (dist <= vis_range && dist < min_opp_dist) { min_opp_dist = dist; nearest_opponent_obj = opponent_bot; } }
+            senses.nearest_opponent_dist = min_opp_dist;
+            if (nearest_opponent_obj) { senses._nearestOpponent = nearest_opponent_obj; senses.nearest_opponent_dx = nearest_opponent_obj.pos.x - bot_pos.x; senses.nearest_opponent_dy = nearest_opponent_obj.pos.y - bot_pos.y; senses.opponent_is_frozen = (nearest_opponent_obj.freezeTimer > 0 ? 1.0 : 0.0); const is_player = nearest_opponent_obj.is_player_controlled || false; if (is_player) senses.opponent_type_PL = 1.0; else if (nearest_opponent_obj.type === 'Hardcoded') senses.opponent_type_HC = 1.0; else if (nearest_opponent_obj.type === 'Learning') senses.opponent_type_LN = 1.0; }
+            senses._visibleGoals.sort((a, b) => a.dist - b.dist); return senses;
+        }
+        perform_move_action(bot_pos, action_index) { const next_pos = { ...bot_pos }; const delta = [{dx:0,dy:-1}, {dx:0,dy:1}, {dx:-1,dy:0}, {dx:1,dy:0}]; if (action_index >= 0 && action_index <= 3) { next_pos.x += delta[action_index].dx; next_pos.y += delta[action_index].dy; } return next_pos; }
+        get_adjacent_unclaimed_goal(bot_pos) { for (const goal of this.goals) { if (!this.claimed_goals.has(goal.id) && this._manhattan_distance(bot_pos, goal) === 1) return goal; } return null; }
+        claim_goal(goal_id, bot_id) { if (this.claimed_goals.has(goal_id)) return false; const goal_exists = this.goals.some(g => g.id === goal_id); if (goal_exists) { this.claimed_goals.add(goal_id); return true; } return false; }
+        are_all_goals_claimed() { return this._initial_goals.length > 0 && this.claimed_goals.size >= this._initial_goals.length; }
+        get_state() { const active_goals = this.goals.filter(g => !this.claimed_goals.has(g.id)); return { size: this.size, goals: active_goals, obstacles: Array.from(this.obstacles).map(obs_str => obs_str.split(',').map(Number)), claimedGoals: Array.from(this.claimed_goals) }; }
+    }
+    function create_hardcoded_bot_instance(bot_id, start_pos) {
+        return {
+            id: bot_id, type: 'Hardcoded', pos: { ...start_pos }, steps: 0, goalsReachedThisRound: 0, goalsReachedTotal: 0,
+            freezeTimer: 0, mental_attack_timer: 0, lastAction: -1, mode: 'Init', senses: {}, lastPos: { x: -1, y: -1 },
+            stuckCounter: 0, lastMoveAttempt: -1, currentPath: null, targetGoalId: null, randomMoveCounter: 0,
+            is_player_controlled: false, target_coordinate: null, 
+            is_hallucinating_state: false,
+        };
+    }
+    function create_learning_bot_instance(bot_id, start_pos, config, sharedHnsSystem) {
+        if (!sharedHnsSystem || sharedHnsSystem.isDisposed) {
+            throw new Error(`HNS not ready for learning bot ${bot_id}.`);
+        }
+        const initial_hier_mem_states = sharedHnsSystem.getInitialStates(); 
+        const initial_last_step_outputs = {};
+        sharedHnsSystem.levelConfigsOriginal.forEach(levelConfig => { 
+            initial_last_step_outputs[levelConfig.name] = {
+                retrievedVal: tf.keep(tf.zeros([1, 1, levelConfig.dim])) 
+            };
+        });
+        const policyHeadInputLevelName = config.POLICY_HEAD_INPUT_LEVEL_NAME;
+        const policyHeadInputLevelConfig = sharedHnsSystem.levelConfigsOriginal.find(l => l.name === policyHeadInputLevelName);
+        if (!policyHeadInputLevelConfig) {
+            throw new Error(`Policy head input level '${policyHeadInputLevelName}' not found in HLC.`);
+        }
+        const policyHeadInputDim = policyHeadInputLevelConfig.dim;
+        const policyHead = tf.sequential({name: `${bot_id}_policy_head`});
+        policyHead.add(tf.layers.dense({
+            units: config.NUM_ACTIONS,
+            inputShape: [policyHeadInputDim], 
+            kernelInitializer: 'glorotUniform',
+            biasInitializer: 'zeros',
+        }));
+        return {
+            id: bot_id, type: 'Learning', pos: { ...start_pos }, steps: 0, goalsReachedThisRound: 0, goalsReachedTotal: 0,
+            freezeTimer: 0, mental_attack_timer: 0, lastAction: -1, mode: 'Init', senses: {},
+            hierarchicalSystem: sharedHnsSystem, 
+            memoryState: initial_hier_mem_states, 
+            lastStepOutputs: initial_last_step_outputs, 
+            policyHead: policyHead, 
+            last_anomaly_sum: 0.0, 
+            is_player_controlled: false, target_coordinate: null,
+            original_bot_id: bot_id, 
+            lastPos: { x: -1, y: -1 }, stuckCounter: 0, lastMoveAttempt: -1,
+            currentPath: null, targetGoalId: null, randomMoveCounter: 0,
+            is_hallucinating_state: false,
+        };
+    }
+    function get_hardcoded_action(bot_state, senses, env, all_bots_dict) {
+        const bot_id = bot_state.id; const pos = bot_state.pos;
+        bot_state.stuckCounter = bot_state.stuckCounter || 0; bot_state.currentPath = bot_state.currentPath || null;
+        bot_state.lastAction = bot_state.lastAction === undefined ? -1 : bot_state.lastAction; bot_state.targetGoalId = bot_state.targetGoalId || null;
+        bot_state.lastPos = bot_state.lastPos || { x: -1, y: -1 }; bot_state.randomMoveCounter = bot_state.randomMoveCounter || 0;
+        if (pos.x === bot_state.lastPos.x && pos.y === bot_state.lastPos.y) bot_state.stuckCounter++;
+        else { bot_state.stuckCounter = 0; bot_state.lastPos = { ...pos }; bot_state.randomMoveCounter = 0; }
+        if (bot_state.freezeTimer > 0) return [-1, "Frozen"];
+        if (bot_state.mental_attack_timer > 0) return [-1, "Hallucinating (Idle)"];
+        const adjacent_goal = env.get_adjacent_unclaimed_goal(pos);
+        if (adjacent_goal) { bot_state.stuckCounter = 0; bot_state.currentPath = null; bot_state.targetGoalId = null; bot_state.randomMoveCounter = 0; return [5, `Claim ${adjacent_goal.id}`]; }
+        const nearest_opponent = senses._nearestOpponent;
+        if (nearest_opponent && senses.nearest_opponent_dist === 1 && !senses.opponent_is_frozen && (!nearest_opponent.mental_attack_timer || nearest_opponent.mental_attack_timer <=0) ) { bot_state.stuckCounter = 0; bot_state.currentPath = null; bot_state.targetGoalId = null; bot_state.randomMoveCounter = 0; return [4, `Punch ${nearest_opponent.id}`]; }
+        if (nearest_opponent && senses.nearest_opponent_dist >=1 && senses.nearest_opponent_dist <= appliedConfig.MENTAL_ATTACK_RANGE && (!nearest_opponent.mental_attack_timer || nearest_opponent.mental_attack_timer <=0) && (!nearest_opponent.freezeTimer || nearest_opponent.freezeTimer <=0) ) { bot_state.stuckCounter = 0; bot_state.currentPath = null; bot_state.targetGoalId = null; bot_state.randomMoveCounter = 0; return [6, `MAtt ${nearest_opponent.id}`]; }
+        if (bot_state.stuckCounter >= 5 && bot_state.randomMoveCounter < 3) {
+            bot_state.randomMoveCounter++; bot_state.currentPath = null; bot_state.targetGoalId = null; const valid_moves = [];
+            for (let action_idx = 0; action_idx < 4; action_idx++) { const next_p = env.perform_move_action(pos, action_idx); const occupied_by_active = Object.values(all_bots_dict).some(b => b.id !== bot_id && b.pos.x === next_p.x && b.pos.y === next_p.y && (b.freezeTimer || 0) <= 0 ); if (env.is_valid(next_p) && !occupied_by_active) valid_moves.push(action_idx); }
+            if (valid_moves.length > 0) return [valid_moves[Math.floor(Math.random() * valid_moves.length)], `StuckRandom (${bot_state.stuckCounter})`];
+            else return [-1, "StuckBlocked"];
+        } else if (bot_state.stuckCounter >= 5) { return [-1, `Stuck (${bot_state.stuckCounter})`]; }
+        if (bot_state.currentPath && bot_state.currentPath.length > 0) {
+            const next_action = bot_state.currentPath[0]; const intended_pos = env.perform_move_action(pos, next_action);
+            const is_pos_valid = env.is_valid(intended_pos); const is_pos_occupied_by_other = Object.values(all_bots_dict).some( other_bot => other_bot.id !== bot_id && other_bot.pos.x === intended_pos.x && other_bot.pos.y === intended_pos.y );
+            if (is_pos_valid && !is_pos_occupied_by_other) { bot_state.currentPath.shift(); let mode_str = `Path (${bot_state.currentPath.length} left)`; if (bot_state.currentPath.length === 0) { bot_state.targetGoalId = null; mode_str = "Path End"; } bot_state.randomMoveCounter = 0; return [next_action, mode_str];
+            } else { bot_state.currentPath = null; bot_state.targetGoalId = null; }
+        }
+        const visible_goals = senses._visibleGoals || []; let target_goal_obj = null;
+        if (bot_state.targetGoalId) { target_goal_obj = visible_goals.find(g => g.id === bot_state.targetGoalId) || null; if (!target_goal_obj) bot_state.targetGoalId = null; }
+        if (!target_goal_obj && visible_goals.length > 0) { target_goal_obj = visible_goals[0]; bot_state.targetGoalId = target_goal_obj.id; }
+        if (target_goal_obj) {
+            const path_to_goal = env.find_path(pos, target_goal_obj, all_bots_dict, bot_id);
+            if (path_to_goal && path_to_goal.length > 0) { bot_state.currentPath = path_to_goal; const next_action = bot_state.currentPath.shift(); let mode_str = `NewPath (${bot_state.currentPath.length} left)`; if (bot_state.currentPath.length === 0) { bot_state.targetGoalId = null; mode_str="NewPath End"; } bot_state.randomMoveCounter = 0; return [next_action, mode_str];
+            } else { bot_state.targetGoalId = null; bot_state.currentPath = null; }
+        }
+        const valid_moves = []; for (let action_idx = 0; action_idx < 4; action_idx++) { const next_p = env.perform_move_action(pos, action_idx); const occupied_by_active = Object.values(all_bots_dict).some(b => b.id !== bot_id && b.pos.x === next_p.x && b.pos.y === next_p.y && (b.freezeTimer || 0) <= 0 ); if (env.is_valid(next_p) && !occupied_by_active) valid_moves.push(action_idx); }
+        if (valid_moves.length === 0) return [-1, "Blocked"];
+        const last_act = bot_state.lastAction; let reverse_action = -1; if (last_act >= 0 && last_act <= 3) { const reverse_map = {0:1, 1:0, 2:3, 3:2}; reverse_action = reverse_map[last_act]; }
+        const non_reverse_moves = valid_moves.filter(m => m !== reverse_action); let chosen_move = -1;
+        if (non_reverse_moves.length > 0) chosen_move = non_reverse_moves[Math.floor(Math.random() * non_reverse_moves.length)];
+        else if (valid_moves.length > 0) chosen_move = valid_moves[Math.floor(Math.random() * valid_moves.length)];
+        bot_state.currentPath = null; return [chosen_move, `Random (${bot_state.stuckCounter})`];
+    }
+    function _get_input_tensor_for_bot_hierarchy(bot_state, senses, config) {
+        const features = []; const vis_range = config.VISIBILITY_RANGE;
+        const norm_capped = (val, cap = vis_range) => { const v = parseFloat(val); const c = parseFloat(cap); if (isNaN(v)) return 0.0; return (c <= 0) ? 0.0 : Math.sign(v) * Math.min(Math.abs(v), c) / c; };
+        features.push(norm_capped(senses.wall_distance_N)); features.push(norm_capped(senses.wall_distance_S)); features.push(norm_capped(senses.wall_distance_W)); features.push(norm_capped(senses.wall_distance_E));
+        features.push(norm_capped(senses.nearest_goal_dist)); features.push(norm_capped(senses.nearest_goal_dx)); features.push(norm_capped(senses.nearest_goal_dy));
+        features.push(Math.min(1.0, Math.max(0.0, (senses.num_visible_goals || 0) / 5.0)));
+        features.push(norm_capped(senses.nearest_opponent_dist)); features.push(norm_capped(senses.nearest_opponent_dx)); features.push(norm_capped(senses.nearest_opponent_dy));
+        features.push(senses.opponent_is_frozen || 0.0); features.push(senses.opponent_type_HC || 0.0); features.push(senses.opponent_type_LN || 0.0); features.push(senses.opponent_type_PL || 0.0);
+        features.push(senses.self_is_frozen || 0.0); features.push(senses.is_hallucinating || 0.0);
+        for (let i = features.length; i < config.SENSORY_INPUT_DIM; i++) { features.push(0.0); }
+        const final_features = features.slice(0, config.SENSORY_INPUT_DIM);
+        return tf.tensor2d([final_features], [1, config.SENSORY_INPUT_DIM],'float32').expandDims(0);
+    }
+    function get_learning_action(bot_state, senses, env, all_bots_dict, direct_player_action, config) {
+        let chosen_action = -1; let mode_code = 5; let mode_str = "Idle";
+        const results = tf.tidy(`${bot_state.id}_LearningActionTidy`, () => {
+            if (bot_state.freezeTimer > 0) { bot_state.target_coordinate = null; return { action: -1, mode_str: "Frozen", mode_code: 5 }; }
+            let sensory_input_tensor;
+            const is_mental_attack_active = bot_state.mental_attack_timer > 0;
+            bot_state.is_hallucinating_state = is_mental_attack_active;
+            if (is_mental_attack_active && config.MENTAL_ATTACK_USES_RECONSTRUCTION && bot_state.hierarchicalSystem) {
+                const l0Name = bot_state.hierarchicalSystem.levelConfigsOriginal[0].name;
+                const l0Reconstruction = bot_state.lastStepOutputs[l0Name]?.retrievedVal; 
+                if (l0Reconstruction && !l0Reconstruction.isDisposed && l0Reconstruction.shape[2] === config.SENSORY_INPUT_DIM) {
+                    sensory_input_tensor = tf.keep(l0Reconstruction.clone());
+                    mode_str = "Hallucinating (Recon)"; mode_code = 6;
+                } else {
+                    sensory_input_tensor = _get_input_tensor_for_bot_hierarchy(bot_state, senses, config);
+                    mode_str = "Hallucinating (Sensory Fallback)"; mode_code = 6;
+                }
+            } else {
+                sensory_input_tensor = _get_input_tensor_for_bot_hierarchy(bot_state, senses, config);
+                if (is_mental_attack_active) { mode_str = "Hallucinating (No Recon)"; mode_code = 6;} 
+            }
+            const hierarchy_inputs = { [bot_state.hierarchicalSystem.levelConfigsOriginal[0].name]: sensory_input_tensor };
+            const external_inputs_for_hns_step = {};
+            const motorActionIdx = (bot_state.lastAction >= 0 && bot_state.lastAction < config.NUM_ACTIONS) ? bot_state.lastAction : 0; 
+            const motorTensor = tf.oneHot(tf.tensor1d([motorActionIdx],'int32'), config.NUM_ACTIONS).cast('float32').reshape([1,1,config.NUM_ACTIONS]);
+            const l0ExpectedExternal = bot_state.hierarchicalSystem.level_expected_external_details[0]; 
+            if (l0ExpectedExternal && l0ExpectedExternal.name) {
+                if (config.USE_RULES_AS_HNS_INPUT && l0ExpectedExternal.name === "L0_combined_motor_rule") {
+                    const ruleActionTuple = get_hardcoded_action(bot_state, senses, env, all_bots_dict);
+                    const ruleAction = ruleActionTuple[0];
+                    const ruleActionIdx = (ruleAction >= 0 && ruleAction < config.NUM_ACTIONS) ? ruleAction : 0; 
+                    const ruleTensor = tf.oneHot(tf.tensor1d([ruleActionIdx],'int32'), config.NUM_ACTIONS).cast('float32').reshape([1,1,config.NUM_ACTIONS]);
+                    external_inputs_for_hns_step[l0ExpectedExternal.name] = tf.concat([motorTensor, ruleTensor], 2);
+                    ruleTensor.dispose(); 
+                } else if (l0ExpectedExternal.name === "L0_external_motor_efference") {
+                    external_inputs_for_hns_step[l0ExpectedExternal.name] = motorTensor.clone(); 
+                }
+            }
+            motorTensor.dispose(); 
+            const hnsStepResults = bot_state.hierarchicalSystem.step(bot_state.memoryState, bot_state.lastStepOutputs, hierarchy_inputs, external_inputs_for_hns_step, true);
+            bot_state.memoryState.forEach(levelState => disposeMemStateWeights(levelState));
+            bot_state.memoryState = hnsStepResults.nextBotStates; 
+            Object.keys(bot_state.lastStepOutputs).forEach(levelName => {
+                if (bot_state.lastStepOutputs[levelName] && bot_state.lastStepOutputs[levelName].retrievedVal && !bot_state.lastStepOutputs[levelName].retrievedVal.isDisposed) {
+                    bot_state.lastStepOutputs[levelName].retrievedVal.dispose();
+                }
+                if (hnsStepResults.newlyRetrievedValues[levelName] && !hnsStepResults.newlyRetrievedValues[levelName].isDisposed) {
+                    bot_state.lastStepOutputs[levelName] = { retrievedVal: hnsStepResults.newlyRetrievedValues[levelName] };
+                } else {
+                    const dimForLevel = bot_state.hierarchicalSystem.dims[levelName] || config.SENSORY_INPUT_DIM; 
+                    bot_state.lastStepOutputs[levelName] = { retrievedVal: tf.keep(tf.zeros([1, 1, dimForLevel])) };
+                }
+             });
+            let action_logits;
+            const policyHeadInputTensorName = config.POLICY_HEAD_INPUT_LEVEL_NAME;
+            const policyInputTensor = bot_state.lastStepOutputs[policyHeadInputTensorName]?.retrievedVal;
+            if (!policyInputTensor || policyInputTensor.isDisposed) {
+                chosen_action = -1; mode_str = "Error (Policy Input)";
+            } else {
+                if (bot_state.is_player_controlled) {
+                    const control_influence_percent = Math.max(0.0, Math.min(100.0, config.PLAYER_CONTROL_PERCENT));
+                    let player_action = -1; let player_mode_str = "Player Idle"; let player_mode_code = 5;
+                    if (direct_player_action !== null && direct_player_action >= 0 && direct_player_action < config.NUM_ACTIONS) { player_action = direct_player_action; player_mode_str = `Player Direct (${player_action})`; player_mode_code = 3; bot_state.target_coordinate = null; }
+                    else if (bot_state.target_coordinate) {
+                        const target = bot_state.target_coordinate; const current_pos = bot_state.pos; const dist = env._manhattan_distance(current_pos, target); player_mode_code = 4;
+                        if (dist === 0) { player_action = -1; player_mode_str = "Player Target Reached"; bot_state.target_coordinate = null;}
+                        else {
+                            let temp_action = -1;
+                            if (dist === 1) { const opp = Object.values(all_bots_dict).find(b => b.id !== bot_state.id && b.pos.x === target.x && b.pos.y === target.y && (b.freezeTimer || 0) <= 0 && (!b.mental_attack_timer || b.mental_attack_timer <=0)); if (opp) { temp_action = 4; player_mode_str = "Player Target Punch"; } else { const goal = env.goals.find(g => !env.claimed_goals.has(g.id) && g.x === target.x && g.y === target.y); if (goal) { temp_action = 5; player_mode_str = "Player Target Claim"; } } }
+                            if (temp_action === -1 && dist >=1 && dist <= config.MENTAL_ATTACK_RANGE) { const opp_ma = Object.values(all_bots_dict).find(b => b.id !== bot_state.id && b.pos.x === target.x && b.pos.y === target.y && (b.freezeTimer || 0) <= 0 && (!b.mental_attack_timer || b.mental_attack_timer <=0)); if (opp_ma) { temp_action = 6; player_mode_str = "Player Target MAtt"; } }
+                            if (temp_action === -1) { const path = env.find_path(current_pos, target, all_bots_dict, bot_state.id); if (path && path.length > 0) { temp_action = path[0]; player_mode_str = `Player Target Move ${temp_action}`; } else { temp_action = -1; player_mode_str = "Player Target Blocked"; } }
+                            player_action = temp_action;
+                        }
+                    }
+                    if (control_influence_percent < 100.0 && player_action !== -1) {
+                        const squeezed_policy_input = policyInputTensor.squeeze([1]);
+                        action_logits = bot_state.policyHead.apply(squeezed_policy_input);
+                        const ai_action = action_logits.argMax(-1).dataSync()[0];
+                        if (Math.random() * 100 < control_influence_percent) { chosen_action = player_action; mode_str = player_mode_str; mode_code = player_mode_code; }
+                        else { chosen_action = ai_action; mode_str = "AI Blend"; mode_code = 0; }
+                    } else { chosen_action = player_action; mode_str = player_mode_str; mode_code = player_mode_code; }
+                } else { 
+                     if (is_mental_attack_active && config.MENTAL_ATTACK_USES_RECONSTRUCTION) { 
+                        const squeezed_policy_input = policyInputTensor.squeeze([1]);
+                        action_logits = bot_state.policyHead.apply(squeezed_policy_input); 
+                        chosen_action = action_logits.argMax(-1).dataSync()[0];
+                    } else if (is_mental_attack_active && !config.MENTAL_ATTACK_USES_RECONSTRUCTION) {
+                        chosen_action = -1; 
+                        mode_str = "Hallucinating (Action Blocked)"; mode_code = 6;
+                    } else {
+                        const base_explore_rate_percent = config.LEARNING_BOT_BASE_EXPLORATION_RATE; 
+                        const current_anomaly_sum_for_explore = hnsStepResults.anomalies ? Object.values(hnsStepResults.anomalies).reduce((sum, t) => sum + t.dataSync()[0], 0) : 0;
+                        const anomaly_factor = Math.min(3.0, 1.0 + current_anomaly_sum_for_explore * 10.0);
+                        const current_exploration_threshold_percent = Math.min(98.0, base_explore_rate_percent * anomaly_factor); 
+                        const is_exploring = Math.random() * 100 < current_exploration_threshold_percent;
+                        if (is_exploring) {
+                            const rule_explore_percent_chance = config.LEARNING_BOT_RULE_EXPLORE_PERCENT;
+                            if (Math.random() * 100 < rule_explore_percent_chance) { mode_code = 2; let hc_mode; [chosen_action, hc_mode] = get_hardcoded_action(bot_state, senses, env, all_bots_dict); mode_str = `Explore Rule (${current_exploration_threshold_percent.toFixed(1)}%) -> ${hc_mode}`; }
+                            else { mode_code = 1; chosen_action = Math.floor(Math.random() * config.NUM_ACTIONS); mode_str = `Explore Random (${current_exploration_threshold_percent.toFixed(1)}%)`; }
+                        } else {
+                            mode_code = 0; 
+                            const squeezed_policy_input = policyInputTensor.squeeze([1]);
+                            action_logits = bot_state.policyHead.apply(squeezed_policy_input); 
+                            chosen_action = action_logits.argMax(-1).dataSync()[0]; mode_str = `Exploit (Predict ${chosen_action})`;
+                        }
+                    }
+                }
+            }
+            let current_total_anomaly = 0;
+            if(hnsStepResults.anomalies) {
+                for(const lvlName in hnsStepResults.anomalies) { 
+                    const anomalyTensor = hnsStepResults.anomalies[lvlName]; 
+                    if (anomalyTensor && !anomalyTensor.isDisposed) current_total_anomaly += anomalyTensor.dataSync()[0]; 
+                }
+            }
+            bot_state.last_anomaly_sum = current_total_anomaly; 
+            disposeHnsResultsTensors(hnsStepResults); 
+            if (typeof chosen_action !== 'number' || chosen_action < -1 || chosen_action >= config.NUM_ACTIONS) { 
+                chosen_action = -1; 
+                if (mode_code !== 5 && mode_code !== 6) mode_str += " -> IdleFallback"; 
+            }
+            return { action: chosen_action, mode_str, mode_code }; 
+        }); 
+        return results;
+    }
+    function disposeBotResources(bot) {
+        if (bot.type === 'Learning') {
+            if (bot.memoryState) { 
+                bot.memoryState.forEach(levelState => disposeMemStateWeights(levelState));
+                bot.memoryState = null; 
+            }
+            if (bot.lastStepOutputs) { 
+                Object.values(bot.lastStepOutputs).forEach(out => { 
+                    if(out.retrievedVal && !out.retrievedVal.isDisposed) out.retrievedVal.dispose(); 
+                }); 
+                bot.lastStepOutputs = {}; 
+            }
+            if (bot.policyHead && typeof bot.policyHead.dispose === 'function') { 
+                bot.policyHead.dispose(); bot.policyHead = null; 
+            }
+        }
+    }
+    function _getProcessedHLC(rawHLC, globalConfig) {
+        const sensoryInputDim = Number(globalConfig.SENSORY_INPUT_DIM);
+        const numActions = Number(globalConfig.NUM_ACTIONS);
+        if (isNaN(sensoryInputDim) || isNaN(numActions)) {
+            console.error(`Error: SENSORY_INPUT_DIM (${globalConfig.SENSORY_INPUT_DIM}) or NUM_ACTIONS (${globalConfig.NUM_ACTIONS}) is not a valid number in globalConfig.`);
+            return JSON.parse(JSON.stringify(rawHLC)); 
+        }
+        const processedHLC = JSON.parse(JSON.stringify(rawHLC)); 
+        processedHLC.forEach(levelCfg => {
+            if (levelCfg.name === "L0_SensoryMotor") {
+                levelCfg.raw_sensory_input_dim = sensoryInputDim; 
+                const motorDim = numActions;
+                if (globalConfig.USE_RULES_AS_HNS_INPUT) {
+                    levelCfg.external_input_config = { 
+                        source_signal_name: "L0_combined_motor_rule", 
+                        dim: motorDim + numActions, 
+                    };
+                } else {
+                    levelCfg.external_input_config = {
+                        source_signal_name: "L0_external_motor_efference",
+                        dim: motorDim
+                    };
+                }
+            } else { 
+                if (Array.isArray(levelCfg.external_input_config) && levelCfg.external_input_config.length > 0) {
+                    levelCfg.external_input_config = levelCfg.external_input_config[0]; 
+                } else if (!levelCfg.external_input_config || typeof levelCfg.external_input_config !== 'object' || Array.isArray(levelCfg.external_input_config)) {
+                    levelCfg.external_input_config = null; 
+                }
+            }
+        });
+        return processedHLC;
+    }
+    function setup_simulation(full_reset = false, new_environment_setting = false) {
+        if (full_reset) {
+            clientState.round = 0; clientState.stats = { hc_total_goals: 0, learning_total_goals: 0 };
+            if (clientState.bots) { Object.values(clientState.bots).forEach(bot => { if (bot.type === 'Learning') disposeBotResources(bot); }); }
+            clientState.bots = {}; 
+            if (clientState.hnsSystem && typeof clientState.hnsSystem.dispose === 'function' && !clientState.hnsSystem.isDisposed) { 
+                clientState.hnsSystem.dispose(); 
+                clientState.hnsSystem = null; 
+            }
+            tf.disposeVariables(); updateTfMemoryDisplay();
+            clientState.environment = null; new_environment_setting = true; 
+        } else { 
+            clientState.round++;
+            if (clientState.environment) {
+                 let env_changed_flag = false;
+                 let change_details = "Env structure change detected. Differences:\n";
+                 let changed_any = false;
+                 if (appliedConfig.GRID_SIZE !== clientState.environment.size) {
+                     change_details += `GRID_SIZE: config=${appliedConfig.GRID_SIZE}, env=${clientState.environment.size}\n`;
+                     changed_any = true;
+                 }
+                 if (appliedConfig.NUM_HC_BOTS !== clientState.environment.num_hc_bots) {
+                     change_details += `NUM_HC_BOTS: config=${appliedConfig.NUM_HC_BOTS}, env=${clientState.environment.num_hc_bots}\n`;
+                     changed_any = true;
+                 }
+                 if (appliedConfig.NUM_LEARNING_BOTS !== clientState.environment.num_learning_bots) {
+                     change_details += `NUM_LEARNING_BOTS: config=${appliedConfig.NUM_LEARNING_BOTS}, env=${clientState.environment.num_learning_bots}\n`;
+                     changed_any = true;
+                 }
+                 if (appliedConfig.NUM_GOALS !== clientState.environment.num_goals_initial) {
+                     change_details += `NUM_GOALS: config=${appliedConfig.NUM_GOALS}, env=${clientState.environment.num_goals_initial}\n`;
+                     changed_any = true;
+                 }
+                 env_changed_flag = changed_any;
+                 if (env_changed_flag) {
+                    return setup_simulation(true, true);
+                 }
+                 else if (new_environment_setting || appliedConfig.RANDOMIZE_ENV_PER_ROUND) {
+                    clientState.environment.randomize();
+                 }
+                 else {
+                    clientState.environment.reset_round_state();
+                 }
+            } else { 
+                new_environment_setting = true;
+            }
+        }
+        player_direct_actions = {}; 
+        if (new_environment_setting || !clientState.environment) {
+             try {
+                 const obs_range = [appliedConfig.OBSTACLES_FACTOR_MIN, appliedConfig.OBSTACLES_FACTOR_MAX];
+                 const dist_factors = { MIN_GOAL_START_DISTANCE_FACTOR: appliedConfig.MIN_GOAL_START_DISTANCE_FACTOR, MIN_BOT_START_DISTANCE_FACTOR: appliedConfig.MIN_BOT_START_DISTANCE_FACTOR, MIN_BOT_GOAL_DISTANCE_FACTOR: appliedConfig.MIN_BOT_GOAL_DISTANCE_FACTOR };
+                 clientState.environment = new GridEnvironment_JS(appliedConfig.GRID_SIZE, appliedConfig.NUM_GOALS, obs_range, appliedConfig.NUM_HC_BOTS, appliedConfig.NUM_LEARNING_BOTS, dist_factors);
+                 if (clientState.environment.num_hc_bots !== appliedConfig.NUM_HC_BOTS || clientState.environment.num_learning_bots !== appliedConfig.NUM_LEARNING_BOTS) {
+                     appliedConfig.NUM_HC_BOTS = clientState.environment.num_hc_bots; 
+                     appliedConfig.NUM_LEARNING_BOTS = clientState.environment.num_learning_bots;
+                     guiConfig.NUM_HC_BOTS = clientState.environment.num_hc_bots; 
+                     guiConfig.NUM_LEARNING_BOTS = clientState.environment.num_learning_bots;
+                     refreshGUIDisplay();
+                 }
+                 if (!full_reset) { 
+                    full_reset = true; 
+                 }
+             } catch (e) { console.error("FATAL: Environment creation failed: " + e.message); return false; }
+        }
+        const processedHLCForHNS = _getProcessedHLC(appliedConfig.HIERARCHY_LEVEL_CONFIGS, appliedConfig);
+        if (full_reset || !clientState.hnsSystem || clientState.hnsSystem.isDisposed) { 
+            if (clientState.hnsSystem && typeof clientState.hnsSystem.dispose === 'function' && !clientState.hnsSystem.isDisposed) clientState.hnsSystem.dispose();
+            clientState.hnsSystem = new HierarchicalSystemV5_TFJS(processedHLCForHNS, appliedConfig);
+        }
+        const new_bots = {}; const bot_starts = clientState.environment.start_positions || [];
+        const required_bots_count = clientState.environment.num_hc_bots + clientState.environment.num_learning_bots;
+        if (bot_starts.length !== required_bots_count) { console.error(`FATAL MISMATCH: Env starts (${bot_starts.length}) != env bot counts (${required_bots_count}). Setup failed.`); return false; }
+        try {
+            for (const start_pos_data of bot_starts) {
+                const bot_id = start_pos_data.id; const bot_type = start_pos_data.type; const start_pos = { x: start_pos_data.x, y: start_pos_data.y };
+                if (clientState.bots[bot_id] && !full_reset) { 
+                    const existing_bot = clientState.bots[bot_id];
+                    existing_bot.pos = { ...start_pos }; existing_bot.steps = 0; existing_bot.goalsReachedThisRound = 0; existing_bot.freezeTimer = 0; existing_bot.mental_attack_timer = 0; existing_bot.lastAction = -1; existing_bot.mode = 'Reset'; existing_bot.senses = {}; existing_bot.lastPos = {x:-1,y:-1}; existing_bot.stuckCounter = 0; existing_bot.lastMoveAttempt = -1; existing_bot.currentPath = null; existing_bot.targetGoalId = null; existing_bot.randomMoveCounter = 0; existing_bot.is_hallucinating_state = false;
+                    if (bot_type === 'Learning') {
+                         existing_bot.last_anomaly_sum = 0.0; existing_bot.target_coordinate = null;
+                         if (existing_bot.memoryState) { 
+                            existing_bot.memoryState.forEach(levelState => disposeMemStateWeights(levelState));
+                         }
+                         existing_bot.memoryState = clientState.hnsSystem.getInitialStates(); 
+                         Object.values(existing_bot.lastStepOutputs).forEach(out => { if(out.retrievedVal && !out.retrievedVal.isDisposed) out.retrievedVal.dispose(); }); 
+                         existing_bot.lastStepOutputs = {}; 
+                         clientState.hnsSystem.levelConfigsOriginal.forEach(lvlConfig => { 
+                             existing_bot.lastStepOutputs[lvlConfig.name] = { retrievedVal: tf.keep(tf.zeros([1, 1, lvlConfig.dim])) }; 
+                         }); 
+                         existing_bot.is_player_controlled = (clientState.playerBotId === bot_id);
+                    } new_bots[bot_id] = existing_bot;
+                } else { 
+                    if (clientState.bots[bot_id] && clientState.bots[bot_id].type === 'Learning') disposeBotResources(clientState.bots[bot_id]);
+                    if (bot_type === 'Hardcoded') new_bots[bot_id] = create_hardcoded_bot_instance(bot_id, start_pos);
+                    else if (bot_type === 'Learning') { 
+                        const new_learning_bot = create_learning_bot_instance(bot_id, start_pos, appliedConfig, clientState.hnsSystem); 
+                        if (clientState.playerOriginalBotId === bot_id) { new_learning_bot.is_player_controlled = true; clientState.playerBotId = bot_id; } 
+                        new_bots[bot_id] = new_learning_bot; 
+                    }
+                }
+            }
+            clientState.bots = new_bots;
+            if (clientState.playerOriginalBotId && !clientState.bots[clientState.playerOriginalBotId]) { clientState.playerBotId = null; clientState.playerOriginalBotId = null; localStorage.removeItem(LOCAL_STORAGE_KEY_PLAYER); }
+            else if (clientState.playerOriginalBotId && clientState.bots[clientState.playerOriginalBotId]) { clientState.bots[clientState.playerOriginalBotId].is_player_controlled = true; clientState.playerBotId = clientState.playerOriginalBotId; }
+        } catch (e) { console.error("Error: Bot creation/reset failed: " + e.message + "\nStack: " + e.stack); return false; }
+        updateTfMemoryDisplay(); return true;
+    }
+    function simulation_step() {
+        if (!clientState.environment || !clientState.bots || Object.keys(clientState.bots).length === 0) return false; 
+        let round_over = false; let max_steps_reached_for_all = true;
+        const bot_ids_this_step = Object.keys(clientState.bots); const current_direct_actions = { ...player_direct_actions }; player_direct_actions = {}; 
+        for (const bot_id of bot_ids_this_step) {
+            if (!clientState.bots[bot_id]) continue; const bot_state = clientState.bots[bot_id];
+            if (bot_state.steps >= appliedConfig.MAX_STEPS_PER_ROUND) continue; else max_steps_reached_for_all = false;
+            let action_val = -1; let mode_str = "Idle"; let mode_code = 5; let next_pos = { ...bot_state.pos };
+            try {
+                bot_state.senses = clientState.environment.get_sensory_data(bot_state, clientState.bots, appliedConfig.VISIBILITY_RANGE);
+                if (bot_state.type === 'Hardcoded') { [action_val, mode_str] = get_hardcoded_action(bot_state, bot_state.senses, clientState.environment, clientState.bots); mode_code = 2; }
+                else if (bot_state.type === 'Learning') { let direct_action_val = null; if (bot_state.is_player_controlled && current_direct_actions[bot_id] !== undefined) { direct_action_val = current_direct_actions[bot_id]; } const learningResult = get_learning_action(bot_state, bot_state.senses, clientState.environment, clientState.bots, direct_action_val, appliedConfig); action_val = learningResult.action; mode_str = learningResult.mode_str; mode_code = learningResult.mode_code; }
+                bot_state.mode = mode_str; const action_attempted = action_val; 
+                let can_act = bot_state.freezeTimer <= 0;
+                if (bot_state.mental_attack_timer > 0 && !appliedConfig.MENTAL_ATTACK_USES_RECONSTRUCTION) {
+                    can_act = false; 
+                    if (bot_state.type === 'Learning') bot_state.mode = "Hallucinating (Action Blocked)";
+                }
+                if (action_attempted !== -1 && can_act) {
+                    if (action_attempted >= 0 && action_attempted <= 3) { const intended_pos = clientState.environment.perform_move_action(bot_state.pos, action_attempted); const occupied = Object.values(clientState.bots).some(b => b.id !== bot_id && b.pos.x === intended_pos.x && b.pos.y === intended_pos.y); if (clientState.environment.is_valid(intended_pos) && !occupied) next_pos = intended_pos; else bot_state.mode += " (Blocked)"; }
+                    else if (action_attempted === 4) { const target_bot = Object.values(clientState.bots).find(ob => ob.id !== bot_id && clientState.environment._manhattan_distance(bot_state.pos, ob.pos) === 1 && (ob.freezeTimer || 0) <= 0 && (!ob.mental_attack_timer || ob.mental_attack_timer <=0)); if (target_bot) { target_bot.freezeTimer = appliedConfig.FREEZE_DURATION; bot_state.mode += ` (Hit ${target_bot.id})`;} else bot_state.mode += " (Punch Miss)"; }
+                    else if (action_attempted === 5) { const adj_goal = clientState.environment.get_adjacent_unclaimed_goal(bot_state.pos); if (adj_goal && clientState.environment.claim_goal(adj_goal.id, bot_id)) { bot_state.goalsReachedThisRound++; bot_state.goalsReachedTotal++; if (bot_state.type === 'Hardcoded') clientState.stats.hc_total_goals++; else clientState.stats.learning_total_goals++; bot_state.mode += ` (Claimed ${adj_goal.id})`; if (clientState.environment.are_all_goals_claimed()) { round_over = true; }} else bot_state.mode += " (Claim Failed)"; }
+                    else if (action_attempted === 6) { bot_state.mode += " (MAtt)"; const potential_targets = []; for (const ob_id in clientState.bots) { const ob_state = clientState.bots[ob_id]; if (ob_id === bot_id || ob_state.freezeTimer > 0 || ob_state.mental_attack_timer > 0) continue; const dist = clientState.environment._manhattan_distance(bot_state.pos, ob_state.pos); if (dist >= 1 && dist <= appliedConfig.MENTAL_ATTACK_RANGE) potential_targets.push(ob_state); } if (potential_targets.length > 0) { potential_targets.sort((a,b) => clientState.environment._manhattan_distance(bot_state.pos, a.pos) - clientState.environment._manhattan_distance(bot_state.pos, b.pos)); const target_bot_to_attack = potential_targets[0]; target_bot_to_attack.mental_attack_timer = appliedConfig.MENTAL_ATTACK_DURATION; bot_state.mode += ` (Hit ${target_bot_to_attack.id})`; } else bot_state.mode += " (NoTgt)"; }
+                }
+                bot_state.pos = next_pos; bot_state.steps++; if (bot_state.freezeTimer > 0) bot_state.freezeTimer--; if (bot_state.mental_attack_timer > 0) bot_state.mental_attack_timer--; bot_state.lastAction = action_attempted;
+            } catch (e) { console.error(`CRITICAL Error processing bot ${bot_id}: ${e.message}. Stack: ${e.stack}`); clientState.isRunning = false; statusEl.textContent = `Status: Error processing bot ${bot_id}. Simulation stopped.`; return false; }
+        } 
+        if (!round_over && max_steps_reached_for_all) { round_over = true; }
+        return !round_over; 
+    }
+    function simulation_loop() {
+        if (!clientState.isRunning) return;
+        const loop_start_time = performance.now(); 
+        const continue_round = simulation_step(); 
+        if (!clientState.isRunning) { 
+            stopSimulation(); 
+            return; 
+        }
+        if (!continue_round) { 
+             const new_env_next = appliedConfig.RANDOMIZE_ENV_PER_ROUND; 
+             if (setup_simulation(false, new_env_next)) { 
+                 statusEl.textContent = `Status: Starting Round ${clientState.round}...`; 
+                 visualizer.update(clientState); 
+                 updateInfoPanel(); 
+                 updateGUIDisplayAndButtonStates(); 
+             } else { 
+                 stopSimulation(); 
+                 statusEl.textContent = 'Status: Error setting up next round. Stopped.'; 
+                 return; 
+             }
+        } else { 
+            visualizer.update(clientState); 
+            updateInfoPanel(); 
+        }
+        const elapsed_time = performance.now() - loop_start_time; const target_delay = appliedConfig.SIMULATION_SPEED_MS; const delay = Math.max(1, target_delay - elapsed_time); 
+        simulation_loop_task = setTimeout(simulation_loop, delay);
+        if (clientState.round % 2 === 0 && clientState.bots[Object.keys(clientState.bots)[0]]?.steps % 20 === 0) {
+             updateTfMemoryDisplay();
+        }
+    }
+    class Visualizer {
+        constructor(canvasCtx, gridContainer) { this.ctx = canvasCtx; this.canvas = canvasCtx.canvas; this.gridContainer = gridContainer; this.gridSize = 0; this.cellSize = 0; this.currentGoals = []; this.currentObstacles = new Set(); this.claimedGoalsIDs = new Set(); this.lastContainerWidth = 0; this.ctx.imageSmoothingEnabled = false; }
+        updateGridDimensions(newGridSize) { if (!this.gridContainer || newGridSize === undefined || newGridSize <= 0) return; const gridSizeNum = Number(newGridSize); if (isNaN(gridSizeNum) || gridSizeNum <= 0) return; const availableWidth = Math.max(300, this.gridContainer.offsetWidth - 2); const newCellSize = Math.max(4, Math.floor(availableWidth / gridSizeNum)); if (gridSizeNum !== this.gridSize || newCellSize !== this.cellSize || this.gridContainer.offsetWidth !== this.lastContainerWidth) { this.gridSize = gridSizeNum; this.cellSize = newCellSize; this.canvas.width = this.gridSize * this.cellSize; this.canvas.height = this.gridSize * this.cellSize; this.lastContainerWidth = this.gridContainer.offsetWidth; } }
+        updateData(environmentState) { if (!environmentState) return; this.updateGridDimensions(environmentState.size); this.currentGoals = environmentState.goals || []; this.currentObstacles = new Set((environmentState.obstacles || []).map(obs => `${obs[0]},${obs[1]}`)); this.claimedGoalsIDs = new Set(environmentState.claimedGoals || []); }
+        drawGrid() { if (!this.ctx || !this.gridSize || !this.cellSize) return; const canvasWidth = this.canvas.width; const canvasHeight = this.canvas.height; this.ctx.clearRect(0, 0, canvasWidth, canvasHeight); this.ctx.fillStyle = '#ffffff'; this.ctx.fillRect(0, 0, canvasWidth, canvasHeight); if (this.cellSize > 5) { this.ctx.strokeStyle = '#f0f0f0'; this.ctx.lineWidth = 1; for (let i = 0; i <= this.gridSize; i++) { const pos = Math.round(i * this.cellSize) + 0.5; this.ctx.beginPath(); this.ctx.moveTo(pos, 0); this.ctx.lineTo(pos, canvasHeight); this.ctx.stroke(); this.ctx.beginPath(); this.ctx.moveTo(0, pos); this.ctx.lineTo(canvasWidth, pos); this.ctx.stroke(); } } else { this.ctx.strokeStyle = '#e0e0e0'; this.ctx.lineWidth = 0.5; this.ctx.strokeRect(0.5, 0.5, canvasWidth - 1, canvasHeight - 1); } this.ctx.fillStyle = '#595959'; this.currentObstacles.forEach(obsString => { try { const [x, y] = obsString.split(',').map(Number); if(x>=0 && x<this.gridSize && y>=0 && y<this.gridSize) { this.ctx.fillRect(Math.floor(x * this.cellSize), Math.floor(y * this.cellSize), Math.ceil(this.cellSize), Math.ceil(this.cellSize)); } } catch(e){ /* ignore */ } }); this.ctx.textAlign = 'center'; this.ctx.textBaseline = 'middle'; const goalRadius = Math.max(1.5, this.cellSize * 0.35); const goalFontSize = Math.max(7, Math.floor(this.cellSize * 0.5)); this.currentGoals.forEach((goal) => { if(!goal || goal.x === undefined) return; const drawX = Math.floor(goal.x * this.cellSize); const drawY = Math.floor(goal.y * this.cellSize); const centerX = drawX + this.cellSize / 2; const centerY = drawY + this.cellSize / 2; if(goal.x>=0 && goal.x<this.gridSize && goal.y>=0 && goal.y<this.gridSize) { if (this.claimedGoalsIDs.has(goal.id)) { this.ctx.fillStyle = '#d9d9d9'; this.ctx.fillRect(drawX, drawY, Math.ceil(this.cellSize), Math.ceil(this.cellSize)); if (this.cellSize > 8) { this.ctx.fillStyle = '#8c8c8c'; this.ctx.font = `bold ${goalFontSize}px sans-serif`; this.ctx.fillText("X", centerX, centerY); } } else { this.ctx.fillStyle = 'gold'; this.ctx.beginPath(); this.ctx.arc(centerX, centerY, goalRadius, 0, Math.PI * 2); this.ctx.fill(); if (this.cellSize > 4) { this.ctx.strokeStyle = '#d48806'; this.ctx.lineWidth = 0.5; this.ctx.stroke(); } if (this.cellSize > 10) { this.ctx.fillStyle = '#434343'; this.ctx.font = `bold ${goalFontSize*0.8}px sans-serif`; this.ctx.fillText("G", centerX, centerY + 1); } } } }); this.ctx.lineWidth = 1; }
+        drawBot(bot) { if (!bot || !bot.pos || bot.pos.x === undefined) return; const drawX = bot.pos.x * this.cellSize; const drawY = bot.pos.y * this.cellSize; const centerX = drawX + this.cellSize / 2; const centerY = drawY + this.cellSize / 2; const radius = Math.max(2, this.cellSize * 0.4); let color = '#888'; let isAvailableToJoin = false; if (bot.type === 'Hardcoded') { color = getComputedStyle(document.documentElement).getPropertyValue('--hardcoded-color').trim() || '#1890ff'; } else if (bot.type === 'Learning') { if (bot.is_player_controlled) { color = getComputedStyle(document.documentElement).getPropertyValue('--player-controlled-color').trim() || '#52c41a'; } else { color = getComputedStyle(document.documentElement).getPropertyValue('--learning-color').trim() || '#f5222d'; if (clientState.playerBotId === null) { isAvailableToJoin = true; } } } this.ctx.fillStyle = color; this.ctx.globalAlpha = (bot.mental_attack_timer > 0) ? 0.5 : 0.95; this.ctx.beginPath(); this.ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI); this.ctx.fill(); if (bot.is_player_controlled) { this.ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--player-controlled-color').trim(); this.ctx.lineWidth = Math.max(1.5, Math.floor(this.cellSize * 0.15)); this.ctx.setLineDash([Math.max(1, this.cellSize * 0.1), Math.max(1, this.cellSize * 0.1)]); this.ctx.stroke(); this.ctx.setLineDash([]); } else if (isAvailableToJoin) { this.ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--learning-available-color').trim(); this.ctx.lineWidth = Math.max(1.5, Math.floor(this.cellSize * 0.1)); this.ctx.setLineDash([Math.max(2, this.cellSize * 0.15), Math.max(1, this.cellSize * 0.1)]); this.ctx.strokeRect(drawX + this.ctx.lineWidth / 2, drawY + this.ctx.lineWidth / 2, this.cellSize - this.ctx.lineWidth, this.cellSize - this.ctx.lineWidth); this.ctx.setLineDash([]); } if (bot.freezeTimer > 0) { this.ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--frozen-color').trim(); this.ctx.lineWidth = Math.max(1.5, Math.floor(this.cellSize * 0.1)); this.ctx.globalAlpha = 0.8; this.ctx.beginPath(); this.ctx.arc(centerX, centerY, radius * 1.15, 0, 2 * Math.PI); this.ctx.stroke(); } if (bot.mental_attack_timer > 0) { this.ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--hallucinating-color').trim(); this.ctx.lineWidth = Math.max(1.5, Math.floor(this.cellSize * 0.1)); this.ctx.globalAlpha = 0.7; this.ctx.beginPath(); this.ctx.arc(centerX, centerY, radius * 0.7, 0, 2 * Math.PI); this.ctx.stroke(); } this.ctx.globalAlpha = 1.0; if (this.cellSize > 14) { this.ctx.fillStyle = 'white'; this.ctx.font = `bold ${Math.max(6, Math.floor(this.cellSize * 0.35))}px sans-serif`; const idNum = bot.id.match(/\d+/); const label = bot.id[0] + (idNum ? idNum[0] : ''); this.ctx.fillText(label, centerX, centerY + 1); } this.ctx.lineWidth = 1; }
+        drawTarget(targetCoord) { if (!targetCoord || !this.cellSize || targetCoord.x === null || targetCoord.y === null) return; const centerX = targetCoord.x * this.cellSize + this.cellSize / 2; const centerY = targetCoord.y * this.cellSize + this.cellSize / 2; const crossSize = this.cellSize * 0.4; this.ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--target-crosshair-color').trim(); this.ctx.lineWidth = Math.max(1, this.cellSize * 0.08); this.ctx.globalAlpha = 0.8; this.ctx.beginPath(); this.ctx.moveTo(centerX - crossSize, centerY); this.ctx.lineTo(centerX + crossSize, centerY); this.ctx.moveTo(centerX, centerY - crossSize); this.ctx.lineTo(centerX, centerY + crossSize); this.ctx.stroke(); this.ctx.globalAlpha = 1.0; this.ctx.lineWidth = 1; }
+        update(state) { if (!state) return; if (state.environment && typeof state.environment.get_state === 'function') { this.updateData(state.environment.get_state()); } else if (state.environment) { this.updateData(state.environment); } this.drawGrid(); Object.values(state.bots || {}).forEach(bot => this.drawBot(bot)); if (clientState.playerBotId && clientState.playerTarget) { this.drawTarget(clientState.playerTarget); } }
+        getBotAtCoord(gridX, gridY) { for (const botId in clientState.bots) { const bot = clientState.bots[botId]; if (bot.pos && bot.pos.x === gridX && bot.pos.y === gridY) return bot; } return null; }
+    }
+    function updateInfoPanel() {
+        roundInfoEl.textContent = `Round: ${clientState.round}`; 
+        document.getElementById('hc-total-goals').textContent = clientState.stats.hc_total_goals || 0; 
+        document.getElementById('learning-total-goals').textContent = clientState.stats.learning_total_goals || 0; 
+        let botCounts = { Hardcoded: 0, Learning: 0 }; 
+        let botInfoHTML = ''; 
+        let totalAnomalySum = 0; 
+        let learningBotCountWithAnomaly = 0; 
+        const sortedBotIds = Object.keys(clientState.bots || {}).sort((a, b) => { const typeA = clientState.bots[a]?.type || ''; const typeB = clientState.bots[b]?.type || ''; const isPlayerA = clientState.bots[a]?.is_player_controlled || false; const isPlayerB = clientState.bots[b]?.is_player_controlled || false; if(isPlayerA && !isPlayerB) return -1; if(!isPlayerA && isPlayerB) return 1; const typeOrder = { 'Learning': 1, 'Hardcoded': 2 }; if(typeOrder[typeA] !== typeOrder[typeB]) return (typeOrder[typeA] || 99) - (typeOrder[typeB] || 99); const numA = parseInt(a.match(/\d+/)?.[0] || '0'); const numB = parseInt(b.match(/\d+/)?.[0] || '0'); return numA - numB; }); 
+        sortedBotIds.forEach(botId => { const bot = clientState.bots[botId]; if (!bot) return; const type = bot.type || 'Unknown'; let typeClass = ''; const isPlayerControlled = bot.is_player_controlled || false; if (type === 'Hardcoded') typeClass = 'hc-color'; else if (type === 'Learning') typeClass = isPlayerControlled ? 'pl-color' : 'ln-color'; if(type in botCounts) botCounts[type]++; let statusText = "Active"; let statusClasses = "status-tag"; if (bot.freezeTimer > 0) { statusText = `Frozen (${bot.freezeTimer})`; statusClasses += " frozen-status"; } else if (bot.mental_attack_timer > 0) { statusText = `Hallucinating (${bot.mental_attack_timer})`; statusClasses += " hallucinating-status"; } let anomalyText = ''; if (type === 'Learning' && bot.last_anomaly_sum !== undefined && bot.last_anomaly_sum !== null) { totalAnomalySum += bot.last_anomaly_sum; learningBotCountWithAnomaly++; anomalyText = ` | Anomaly Sum: ${bot.last_anomaly_sum.toFixed(4)}`; } const playerMarker = isPlayerControlled ? '<span class="player-controlled-marker">(Player)</span>' : ''; botInfoHTML += `<div class="bot-type-info"><b><span class="${typeClass}">${type} ${bot.id}</span></b>${playerMarker} Pos: (${bot.pos?.x ?? '?', bot.pos?.y ?? '?'}) | Mode: ${bot.mode || 'N/A'} | Status: <span class="${statusClasses}">${statusText}</span> | Goals: ${bot.goalsReachedThisRound || 0} ${anomalyText}</div>`; }); 
+        const avgAnomaly = learningBotCountWithAnomaly > 0 ? (totalAnomalySum / learningBotCountWithAnomaly).toFixed(4) : 'N/A'; 
+        document.getElementById('learning-avg-anomaly').textContent = avgAnomaly; 
+        botsInfoContainerEl.innerHTML = botInfoHTML || '<div class="bot-type-info"><b>No bots found.</b></div>'; 
+    }
+    function updateGUIDisplayAndButtonStates() {
+        if (!gui) return;
+        let hasChanges = false;
+        for (const key in guiConfig) {
+            if (appliedConfig.hasOwnProperty(key)) {
+                let guiValComp, appliedValComp;
+                if (key === 'HIERARCHY_LEVEL_CONFIGS') {
+                    try {
+                        guiValComp = JSON.stringify(JSON.parse(guiConfig[key] || '[]'));
+                        appliedValComp = JSON.stringify(appliedConfig[key] || []);
+                    } catch (e) { guiValComp = guiConfig[key]; appliedValComp = JSON.stringify(appliedConfig[key] || '[]'); } 
+                } else {
+                    guiValComp = guiConfig[key];
+                    appliedValComp = appliedConfig[key];
+                }
+                if (typeof guiValComp === 'number' && typeof appliedValComp === 'number') {
+                    if (Math.abs(guiValComp - appliedValComp) > 1e-9) { hasChanges = true; break; }
+                } else if (String(guiValComp) !== String(appliedValComp)) {
+                    hasChanges = true; break;
+                }
+            }
+        }
+        const canJoin = Object.values(clientState.bots || {}).some(b => b.type === 'Learning' && !b.is_player_controlled);
+        const isPlayer = clientState.playerBotId !== null;
+        if (guiControllers.start) guiControllers.start.enable(!(clientState.isRunning || clientState.needsFullReset || clientState.needsRoundReset || hasChanges));
+        if (guiControllers.stop) guiControllers.stop.enable(clientState.isRunning);
+        if (guiControllers.newRound) guiControllers.newRound.enable(!clientState.isRunning);
+        if (guiControllers.resetAll) guiControllers.resetAll.enable(!clientState.isRunning);
+        if (guiControllers.applyChanges) guiControllers.applyChanges.enable(!clientState.isRunning && hasChanges);
+        if (guiControllers.joinGame) {
+            guiControllers.joinGame.enable(!isPlayer && canJoin);
+            guiControllers.joinGame.name(isPlayer ? "Joined" : (canJoin ? "Join Game" : "No Bots Avail."));
+        }
+        if (guiControllers.leaveBot) guiControllers.leaveBot.enable(isPlayer);
+        if (guiControllers.loadParams) guiControllers.loadParams.enable(!clientState.isRunning);
+        if (guiControllers.resetToDefault) guiControllers.resetToDefault.enable(!clientState.isRunning);
+        const playerControlsEnabled = clientState.playerBotId && clientState.isRunning;
+        const playerActionButtons = [
+            guiControllers.playerActionUp, guiControllers.playerActionDown, guiControllers.playerActionLeft, 
+            guiControllers.playerActionRight, guiControllers.playerActionPunch, guiControllers.playerActionClaim, 
+            guiControllers.playerActionMAtt
+        ];
+        playerActionButtons.forEach(btn => { if(btn) btn.enable(playerControlsEnabled); });
+        let statusText = clientState.isRunning ? "Status: Running..." : "Status: Stopped.";
+        if (hasChanges) {
+            statusText += " | Unapplied changes exist.";
+        }
+        if (clientState.needsFullReset) {
+            statusText += " | Full Reset Required.";
+        } else if (clientState.needsRoundReset) {
+            statusText += " | New Round Required.";
+        }
+        statusEl.textContent = statusText;
+    }
+    function copyConfig(configObj) { try { return JSON.parse(JSON.stringify(configObj || {})); } catch(e) { console.error("Failed to copy config", e); return {}; } }
+    function refreshGUIDisplay() {
+        if (!gui) return;
+        gui.controllersRecursive().forEach(controller => {
+            if (guiConfig.hasOwnProperty(controller.property)) {
+                controller.updateDisplay();
+            }
+        });
+        updateGUIDisplayAndButtonStates();
+    }
+    function updateGuiConfigFromSource(sourceConfig) {
+        if (!sourceConfig) return;
+        for(const key in guiConfig) { 
+            if (sourceConfig.hasOwnProperty(key)) {
+                let value = sourceConfig[key];
+                 if (key === 'HIERARCHY_LEVEL_CONFIGS' && typeof value !== 'string') {
+                    guiConfig[key] = JSON.stringify(value, null, 2);
+                } else {
+                    guiConfig[key] = value;
+                }
+            }
+        }
+        refreshGUIDisplay(); 
+    }
+    function checkForNeededResetsAndUpdateStatus() {
+        if (clientState.isRunning) { updateGUIDisplayAndButtonStates(); return; } 
+        let needsF = false;
+        let needsR = false;
+        const rAllK = ['GRID_SIZE', 'NUM_HC_BOTS', 'NUM_LEARNING_BOTS', 'NUM_GOALS', 'SENSORY_INPUT_DIM', 'HIERARCHY_LEVEL_CONFIGS', 'POLICY_HEAD_INPUT_LEVEL_NAME', 'USE_RULES_AS_HNS_INPUT', 'NUM_ACTIONS'];
+        const rRndK = ['MAX_STEPS_PER_ROUND', 'VISIBILITY_RANGE', 'OBSTACLES_FACTOR_MIN', 'OBSTACLES_FACTOR_MAX', 'MIN_GOAL_START_DISTANCE_FACTOR', 'MIN_BOT_START_DISTANCE_FACTOR', 'MIN_BOT_GOAL_DISTANCE_FACTOR', 'MENTAL_ATTACK_RANGE', 'MENTAL_ATTACK_DURATION'];
+        let hasAnyChanges = false;
+        for (const key in guiConfig) {
+            if (appliedConfig.hasOwnProperty(key)) {
+                let guiValComp, appliedValComp;
+                if (key === 'HIERARCHY_LEVEL_CONFIGS') {
+                    try {
+                        guiValComp = JSON.stringify(JSON.parse(guiConfig[key] || '[]')); 
+                        appliedValComp = JSON.stringify(appliedConfig[key] || []);      
+                    } catch (e) {
+                        hasAnyChanges = true; 
+                        if (rAllK.includes(key)) needsF = true; else if (rRndK.includes(key)) needsR = true;
+                        continue;
+                    }
+                } else {
+                    guiValComp = guiConfig[key];
+                    appliedValComp = appliedConfig[key];
+                }
+                let different = false;
+                if (typeof guiValComp === 'number' && typeof appliedValComp === 'number') {
+                    different = Math.abs(guiValComp - appliedValComp) > 1e-9;
+                } else if (typeof guiValComp === 'object' && typeof appliedValComp === 'object') { 
+                    different = JSON.stringify(guiValComp) !== JSON.stringify(appliedValComp);
+                } else { 
+                    different = String(guiValComp) !== String(appliedValComp);
+                }
+                if (different) {
+                    hasAnyChanges = true;
+                    if (rAllK.includes(key)) needsF = true;
+                    else if (rRndK.includes(key)) needsR = true;
+                }
+            }
+        }
+        clientState.needsFullReset = needsF;
+        clientState.needsRoundReset = needsR || needsF;
+        let statusText = clientState.isRunning ? "Status: Running..." : "Status: Stopped.";
+        if (hasAnyChanges) {
+            statusText += " | Unapplied changes exist.";
+        }
+        if (clientState.needsFullReset) {
+            statusText += " | Full Reset Required.";
+        } else if (clientState.needsRoundReset) {
+            statusText += " | New Round Required.";
+        }
+        statusEl.textContent = statusText;
+        updateGUIDisplayAndButtonStates();
+    }
+    function saveParamsToLocalStorage() { 
+        try { 
+            const configToSave = copyConfig(guiConfig);
+            if (typeof configToSave.HIERARCHY_LEVEL_CONFIGS === 'string') {
+                try { configToSave.HIERARCHY_LEVEL_CONFIGS = JSON.parse(configToSave.HIERARCHY_LEVEL_CONFIGS); } 
+                catch (e) { /* Save as string if parsing fails */ }
+            }
+            localStorage.setItem(LOCAL_STORAGE_KEY_UI, JSON.stringify(configToSave)); 
+            alert('UI Parameters saved!'); 
+        } catch (e) { alert('Error saving UI parameters.'); } 
+    }
+    function loadParamsFromLocalStorage() { 
+        if(clientState.isRunning) { alert("Stop simulation first."); return; } 
+        try { 
+            const saved = localStorage.getItem(LOCAL_STORAGE_KEY_UI); 
+            if (saved) { 
+                const parsed = JSON.parse(saved); 
+                updateGuiConfigFromSource(parsed); 
+                checkForNeededResetsAndUpdateStatus(); 
+                alert('UI Parameters loaded. Review & Apply/Reset if needed.'); 
+            } else { alert('No saved UI parameters found.'); } 
+        } catch (e) { alert('Error loading UI parameters.'); } 
+    }
+    function resetParamsToDefaultUI() { 
+        if(clientState.isRunning) { alert("Stop simulation first."); return; } 
+        const defaultConfigForUI = copyConfig(DEFAULT_CONFIG);
+        if (typeof defaultConfigForUI.HIERARCHY_LEVEL_CONFIGS === 'object') {
+             defaultConfigForUI.HIERARCHY_LEVEL_CONFIGS = JSON.stringify(defaultConfigForUI.HIERARCHY_LEVEL_CONFIGS, null, 2);
+        }
+        updateGuiConfigFromSource(defaultConfigForUI); 
+        checkForNeededResetsAndUpdateStatus();
+        statusEl.textContent = "Status: UI Reset to Default. Apply/Reset if needed.";
+    }
+    function updateTargetIndicator() { if (clientState.playerTarget && clientState.playerBotId) { targetIndicatorEl.textContent = `Target: (${clientState.playerTarget.x}, ${clientState.playerTarget.y})`; targetIndicatorEl.style.display = 'block'; } else { targetIndicatorEl.textContent = 'Target: None'; targetIndicatorEl.style.display = 'none'; } }
+    function sendTargetUpdate(targetCoord) { const now = Date.now(); if (isDragging && lastSentTargetTime && now - lastSentTargetTime < TARGET_UPDATE_INTERVAL_MS) return; if (clientState.playerBotId) { const currentTarget = clientState.playerTarget; const changed = (targetCoord === null && currentTarget !== null) || (targetCoord !== null && currentTarget === null) || (targetCoord !== null && currentTarget !== null && (targetCoord.x !== currentTarget.x || targetCoord.y !== currentTarget.y)); if (changed) { clientState.playerTarget = targetCoord; if (clientState.bots[clientState.playerBotId]) { clientState.bots[clientState.playerBotId].target_coordinate = targetCoord; } updateTargetIndicator(); if (isDragging) lastSentTargetTime = now; } } }
+    function handleCanvasInteraction(event) { if (!visualizer || !visualizer.cellSize) return; event.preventDefault(); const rect = canvasEl.getBoundingClientRect(); let clientX, clientY; if (event.type.startsWith('touch')) { if (event.type === 'touchend' && event.changedTouches.length > 0) { clientX = event.changedTouches[0].clientX; clientY = event.changedTouches[0].clientY; } else if (event.type === 'touchmove' && event.touches.length > 0) { clientX = event.touches[0].clientX; clientY = event.touches[0].clientY; } else if (event.type === 'touchstart' && event.touches.length > 0) { clientX = event.touches[0].clientX; clientY = event.touches[0].clientY; } else { return; } } else { clientX = event.clientX; clientY = event.clientY; } const canvasX = clientX - rect.left; const canvasY = clientY - rect.top; const targetGridX = Math.floor(canvasX / visualizer.cellSize); const targetGridY = Math.floor(canvasY / visualizer.cellSize); if (targetGridX < 0 || targetGridX >= visualizer.gridSize || targetGridY < 0 || targetGridY >= visualizer.gridSize) { if (isDragging) isDragging = false; return; } if (clientState.playerBotId) { const playerBot = clientState.bots[clientState.playerBotId]; if (!playerBot) { clientState.playerBotId = null; clientState.playerOriginalBotId = null; localStorage.removeItem(LOCAL_STORAGE_KEY_PLAYER); updatePlayerInfo(); updateGUIDisplayAndButtonStates(); return; } if (targetGridX === playerBot.pos.x && targetGridY === playerBot.pos.y && (event.type === 'mouseup' || event.type === 'touchend')) { sendTargetUpdate(null); } else { sendTargetUpdate({ x: targetGridX, y: targetGridY }); } } else { if (event.type === 'mouseup' || event.type === 'touchend') { const clickedBot = visualizer.getBotAtCoord(targetGridX, targetGridY); if (clickedBot && clickedBot.type === 'Learning' && !clickedBot.is_player_controlled) { handleJoinGame(clickedBot.id); } } } }
+    canvasEl.addEventListener('mousedown', (e) => { isDragging = true; handleCanvasInteraction(e); }); canvasEl.addEventListener('mousemove', (e) => { if (isDragging) { handleCanvasInteraction(e); } }); canvasEl.addEventListener('mouseup', (e) => { handleCanvasInteraction(e); isDragging = false; }); canvasEl.addEventListener('mouseleave', () => { isDragging = false; }); canvasEl.addEventListener('touchstart', (e) => { isDragging = true; handleCanvasInteraction(e); }, { passive: false }); canvasEl.addEventListener('touchmove', (e) => { if (isDragging) { handleCanvasInteraction(e); } }, { passive: false }); canvasEl.addEventListener('touchend', (e) => { handleCanvasInteraction(e); isDragging = false; }, { passive: false }); canvasEl.addEventListener('touchcancel', () => { isDragging = false; });
+    function handlePlayerGuiAction(actionCode) {
+        if (clientState.playerBotId && clientState.isRunning) {
+            player_direct_actions[clientState.playerBotId] = actionCode;
+        }
+    }
+    function updatePlayerInfo() { if (clientState.playerBotId) { playerInfoEl.textContent = `CONTROLLING BOT: ${clientState.playerBotId}`; } else { playerInfoEl.textContent = 'Player Bot ID: None'; } }
+    function handleJoinGame(target_bot_id_param = null) { 
+        if (clientState.playerBotId) { alert('Already controlling a bot.'); return; } 
+        if (!clientState.environment || !clientState.bots) { alert('Simulation not ready.'); return; } 
+        let target_bot_id = target_bot_id_param; 
+        let available_bot_id = null; 
+        if (target_bot_id) { 
+            if (clientState.bots[target_bot_id] && clientState.bots[target_bot_id].type === 'Learning' && !clientState.bots[target_bot_id].is_player_controlled) { 
+                available_bot_id = target_bot_id; 
+            } else { 
+                alert(`Bot ${target_bot_id} is not available or not a learning bot.`); return; 
+            } 
+        } else { 
+            available_bot_id = Object.keys(clientState.bots).find(bid => clientState.bots[bid].type === 'Learning' && !clientState.bots[bid].is_player_controlled ); 
+        } 
+        if (available_bot_id) { 
+            const original_id = clientState.bots[available_bot_id].original_bot_id; 
+            clientState.bots[available_bot_id].is_player_controlled = true; 
+            clientState.bots[available_bot_id].target_coordinate = null; 
+            clientState.bots[available_bot_id].mode = "Player Control"; 
+            clientState.playerBotId = available_bot_id; 
+            clientState.playerOriginalBotId = original_id; 
+            localStorage.setItem(LOCAL_STORAGE_KEY_PLAYER, JSON.stringify({ originalBotId: original_id })); 
+            statusEl.textContent = `Status: Joined, controlling ${clientState.playerBotId}.`; 
+            clientState.playerTarget = null; 
+            updateTargetIndicator(); 
+            updatePlayerInfo(); 
+            visualizer.update(clientState); 
+        } else { 
+            alert("No available Learning Bots to control."); 
+        } 
+        updateGUIDisplayAndButtonStates(); 
+    }
+    function handleRejoinGame() { 
+        const savedPlayer = localStorage.getItem(LOCAL_STORAGE_KEY_PLAYER); 
+        if (savedPlayer) { 
+            try { 
+                const playerData = JSON.parse(savedPlayer); 
+                if (playerData && playerData.originalBotId) { 
+                    const original_bot_id = playerData.originalBotId; 
+                    if (clientState.bots[original_bot_id] && clientState.bots[original_bot_id].type === 'Learning' && !clientState.bots[original_bot_id].is_player_controlled) { 
+                        clientState.bots[original_bot_id].is_player_controlled = true; 
+                        clientState.bots[original_bot_id].target_coordinate = null; 
+                        clientState.bots[original_bot_id].mode = "Player Control (Rejoin)"; 
+                        clientState.playerBotId = original_bot_id; 
+                        clientState.playerOriginalBotId = original_bot_id; 
+                        statusEl.textContent = `Status: Rejoined, controlling ${clientState.playerBotId}.`; 
+                        clientState.playerTarget = null; 
+                        updateTargetIndicator(); 
+                        updatePlayerInfo(); 
+                        visualizer.update(clientState);
+                    } else { localStorage.removeItem(LOCAL_STORAGE_KEY_PLAYER); } 
+                } else { localStorage.removeItem(LOCAL_STORAGE_KEY_PLAYER); } 
+            } catch (e) { 
+                localStorage.removeItem(LOCAL_STORAGE_KEY_PLAYER); 
+            } 
+        } 
+        updateGUIDisplayAndButtonStates(); 
+    }
+    function handleLeaveGame() { 
+        if (clientState.playerBotId) { 
+            if (clientState.bots[clientState.playerBotId]) { 
+                clientState.bots[clientState.playerBotId].is_player_controlled = false; 
+                clientState.bots[clientState.playerBotId].target_coordinate = null; 
+                clientState.bots[clientState.playerBotId].mode = "AI Control"; 
+            } 
+            clientState.playerBotId = null; 
+            clientState.playerOriginalBotId = null; 
+            localStorage.removeItem(LOCAL_STORAGE_KEY_PLAYER); 
+            clientState.playerTarget = null; 
+            updateTargetIndicator(); 
+            updatePlayerInfo(); 
+            statusEl.textContent = `Status: Left bot control.`; 
+            visualizer.update(clientState);
+        } else { 
+            alert('Not controlling a bot.'); 
+        } 
+        updateGUIDisplayAndButtonStates(); 
+    }
+    function startSimulation() { 
+        if (clientState.isRunning) { alert('Simulation already running.'); return; } 
+        let hasChanges = false; 
+        for (const key in guiConfig) {
+            if (appliedConfig.hasOwnProperty(key)) {
+                let guiValComp, appliedValComp;
+                if (key === 'HIERARCHY_LEVEL_CONFIGS') {
+                    try { guiValComp = JSON.stringify(JSON.parse(guiConfig[key] || '[]')); appliedValComp = JSON.stringify(appliedConfig[key] || []); } 
+                    catch (e) { guiValComp = guiConfig[key]; appliedValComp = JSON.stringify(appliedConfig[key] || '[]'); }
+                } else { guiValComp = guiConfig[key]; appliedValComp = appliedConfig[key]; }
+                if (typeof guiValComp === 'number' && typeof appliedValComp === 'number') { if (Math.abs(guiValComp - appliedValComp) > 1e-9) { hasChanges = true; break; }
+                } else if (String(guiValComp) !== String(appliedValComp)) { hasChanges = true; break; }
+            }
+        }
+        if (clientState.needsFullReset || clientState.needsRoundReset || hasChanges) { 
+            alert("Apply changes or reset simulation before starting. Check status messages."); return; 
+        } 
+        clientState.isRunning = true; statusEl.textContent = "Status: Running..."; 
+        clearTimeout(simulation_loop_task); simulation_loop_task = setTimeout(simulation_loop, 0); 
+        updateGUIDisplayAndButtonStates(); 
+    }
+    function stopSimulation() { 
+        clientState.isRunning = false; clearTimeout(simulation_loop_task); simulation_loop_task = null; 
+        statusEl.textContent = "Status: Stopped."; 
+        updateGUIDisplayAndButtonStates(); 
+    }
+    function handleResetRound() { 
+        if (clientState.isRunning) { stopSimulation(); } 
+        const new_env = appliedConfig.RANDOMIZE_ENV_PER_ROUND; 
+        if (setup_simulation(false, new_env)) { 
+            visualizer.update(clientState); updateInfoPanel(); statusEl.textContent = 'Status: New Round Ready.'; 
+        } else { statusEl.textContent = 'Status: Error resetting round.'; } 
+        clientState.needsFullReset = false; clientState.needsRoundReset = false; 
+        checkForNeededResetsAndUpdateStatus(); 
+    }
+    function handleResetFull() { 
+        if (clientState.isRunning) { stopSimulation(); } 
+        if (setup_simulation(true, true)) { 
+            visualizer.update(clientState); updateInfoPanel(); statusEl.textContent = 'Status: Full Reset Complete.'; 
+        } else { statusEl.textContent = 'Status: Error during full reset.'; } 
+        clientState.needsFullReset = false; clientState.needsRoundReset = false; 
+        checkForNeededResetsAndUpdateStatus(); 
+    }
+    function handleApplyParams() {
+        if (clientState.isRunning) { alert('Stop simulation before changing parameters.'); return; }
+        let parsedHLC_fromUI;
+        try {
+            parsedHLC_fromUI = JSON.parse(guiConfig.HIERARCHY_LEVEL_CONFIGS);
+        } catch (e) {
+            alert(`Invalid JSON in Hierarchy Level Configs: ${e.message}`);
+            guiConfig.HIERARCHY_LEVEL_CONFIGS = JSON.stringify(appliedConfig.HIERARCHY_LEVEL_CONFIGS || [], null, 2);
+            refreshGUIDisplay(); 
+            return; 
+        }
+        const newAppliedConfig = {};
+        for (const key in DEFAULT_CONFIG) { 
+            if (guiConfig.hasOwnProperty(key)) { 
+                if (key === 'HIERARCHY_LEVEL_CONFIGS') {
+                    newAppliedConfig[key] = parsedHLC_fromUI; 
+                } else {
+                    const defaultValueType = typeof DEFAULT_CONFIG[key];
+                    let guiValue = guiConfig[key];
+                    if (defaultValueType === 'number') {
+                        guiValue = Number(guiValue);
+                         if (isNaN(guiValue)) { 
+                            guiValue = DEFAULT_CONFIG[key];
+                            guiConfig[key] = guiValue; 
+                         }
+                    }
+                    newAppliedConfig[key] = guiValue;
+                }
+            } else { 
+                 newAppliedConfig[key] = DEFAULT_CONFIG[key];
+            }
+        }
+        appliedConfig = newAppliedConfig; 
+        checkForNeededResetsAndUpdateStatus(); 
+    }
+    function initLilGUI() {
+        gui = new GUI({width: 360}); 
+        gui.title("Sim Controls & Params v6.4.0");
+        const simControlFolder = gui.addFolder('Simulation Control').close();
+        guiControllers.start = simControlFolder.add(simulationActions, 'start').name('Start Sim');
+        guiControllers.stop = simControlFolder.add(simulationActions, 'stop').name('Stop Sim');
+        guiControllers.newRound = simControlFolder.add(simulationActions, 'newRound').name('New Round');
+        guiControllers.resetAll = simControlFolder.add(simulationActions, 'resetAll').name('Reset All');
+        guiControllers.joinGame = simControlFolder.add(simulationActions, 'joinGame').name('Join Game');
+        guiControllers.leaveBot = simControlFolder.add(simulationActions, 'leaveBot').name('Leave Bot');
+        const playerActionsFolder = gui.addFolder('Player Actions').close();
+        guiControllers.playerActionUp = playerActionsFolder.add({ act: () => handlePlayerGuiAction(0) }, 'act').name('▲ Up');
+        guiControllers.playerActionDown = playerActionsFolder.add({ act: () => handlePlayerGuiAction(1) }, 'act').name('▼ Down');
+        guiControllers.playerActionLeft = playerActionsFolder.add({ act: () => handlePlayerGuiAction(2) }, 'act').name('◀ Left');
+        guiControllers.playerActionRight = playerActionsFolder.add({ act: () => handlePlayerGuiAction(3) }, 'act').name('▶ Right');
+        guiControllers.playerActionPunch = playerActionsFolder.add({ act: () => handlePlayerGuiAction(4) }, 'act').name('Punch');
+        guiControllers.playerActionClaim = playerActionsFolder.add({ act: () => handlePlayerGuiAction(5) }, 'act').name('Claim');
+        guiControllers.playerActionMAtt = playerActionsFolder.add({ act: () => handlePlayerGuiAction(6) }, 'act').name('MAtt');
+        const paramsFolder = gui.addFolder('Simulation Parameters');
+        const generalFolder = paramsFolder.addFolder('General').close();
+        guiControllers.SIMULATION_SPEED_MS = generalFolder.add(guiConfig, 'SIMULATION_SPEED_MS', 1, 1000, 10).name('Sim Speed (ms)').onChange(checkForNeededResetsAndUpdateStatus);
+        guiControllers.FREEZE_DURATION = generalFolder.add(guiConfig, 'FREEZE_DURATION', 1, 100, 1).name('Punch Freeze (steps)').onChange(checkForNeededResetsAndUpdateStatus);
+        guiControllers.MENTAL_ATTACK_RANGE = generalFolder.add(guiConfig, 'MENTAL_ATTACK_RANGE', 1, 50, 1).name('MAttack Range').onChange(checkForNeededResetsAndUpdateStatus);
+        guiControllers.MENTAL_ATTACK_DURATION = generalFolder.add(guiConfig, 'MENTAL_ATTACK_DURATION', 1, 500, 1).name('MAttack Duration').onChange(checkForNeededResetsAndUpdateStatus);
+        guiControllers.NUM_ACTIONS = generalFolder.add(guiConfig, 'NUM_ACTIONS', 4, 10, 1).name('Num Actions (RO)').disable().onChange(checkForNeededResetsAndUpdateStatus);
+        const envFolder = paramsFolder.addFolder('Environment (Reset Req.)').close();
+        guiControllers.GRID_SIZE = envFolder.add(guiConfig, 'GRID_SIZE', 10, 200, 1).name('Grid Size').onChange(checkForNeededResetsAndUpdateStatus);
+        guiControllers.NUM_GOALS = envFolder.add(guiConfig, 'NUM_GOALS', 0, 500, 1).name('Num Goals').onChange(checkForNeededResetsAndUpdateStatus);
+        guiControllers.NUM_HC_BOTS = envFolder.add(guiConfig, 'NUM_HC_BOTS', 0, 100, 1).name('Num Hardcoded Bots').onChange(checkForNeededResetsAndUpdateStatus);
+        guiControllers.NUM_LEARNING_BOTS = envFolder.add(guiConfig, 'NUM_LEARNING_BOTS', 0, 100, 1).name('Num Learning Bots').onChange(checkForNeededResetsAndUpdateStatus);
+        guiControllers.MAX_STEPS_PER_ROUND = envFolder.add(guiConfig, 'MAX_STEPS_PER_ROUND', 100, 10000, 50).name('Max Steps/Round').onChange(checkForNeededResetsAndUpdateStatus);
+        guiControllers.VISIBILITY_RANGE = envFolder.add(guiConfig, 'VISIBILITY_RANGE', 2, 50, 1).name('Sense Range').onChange(checkForNeededResetsAndUpdateStatus);
+        guiControllers.RANDOMIZE_ENV_PER_ROUND = envFolder.add(guiConfig, 'RANDOMIZE_ENV_PER_ROUND').name('New Env Each Round').onChange(checkForNeededResetsAndUpdateStatus);
+        const learningBotFolder = paramsFolder.addFolder('Learning Bot (TFJS HNM - ResetAll Req.)').close();
+        guiControllers.SENSORY_INPUT_DIM = learningBotFolder.add(guiConfig, 'SENSORY_INPUT_DIM', 10, 64, 1).name('Sensory In Dim (L0)').onChange(checkForNeededResetsAndUpdateStatus);
+        guiControllers.HIERARCHY_LEVEL_CONFIGS = learningBotFolder.add(guiConfig, 'HIERARCHY_LEVEL_CONFIGS').name('HNM Config JSON (Text)').onChange(checkForNeededResetsAndUpdateStatus);
+        guiControllers.POLICY_HEAD_INPUT_LEVEL_NAME = learningBotFolder.add(guiConfig, 'POLICY_HEAD_INPUT_LEVEL_NAME').name('Policy Head Input Lvl').onChange(checkForNeededResetsAndUpdateStatus);
+        guiControllers.USE_RULES_AS_HNS_INPUT = learningBotFolder.add(guiConfig, 'USE_RULES_AS_HNS_INPUT').name('Feed Rules to HNS L0').onChange(checkForNeededResetsAndUpdateStatus);
+        const learningBehaviorFolder = paramsFolder.addFolder('Learning Bot Behavior (Apply Req.)').close();
+        guiControllers.LEARNING_BOT_BASE_EXPLORATION_RATE = learningBehaviorFolder.add(guiConfig, 'LEARNING_BOT_BASE_EXPLORATION_RATE', 0, 100, 1).name('Base Explore Rate %').onChange(checkForNeededResetsAndUpdateStatus);
+        guiControllers.LEARNING_BOT_RULE_EXPLORE_PERCENT = learningBehaviorFolder.add(guiConfig, 'LEARNING_BOT_RULE_EXPLORE_PERCENT', 0, 100, 1).name('Rule Exploration %').onChange(checkForNeededResetsAndUpdateStatus);
+        guiControllers.PLAYER_CONTROL_PERCENT = learningBehaviorFolder.add(guiConfig, 'PLAYER_CONTROL_PERCENT', 0, 100, 1).name('Player Control %').onChange(checkForNeededResetsAndUpdateStatus);
+        guiControllers.MENTAL_ATTACK_USES_RECONSTRUCTION = learningBehaviorFolder.add(guiConfig, 'MENTAL_ATTACK_USES_RECONSTRUCTION').name('MAttack via Recon').onChange(checkForNeededResetsAndUpdateStatus);
+        const hnmMiscFolder = paramsFolder.addFolder('HNM Misc').close();
+        guiControllers.HNM_VERBOSE = hnmMiscFolder.add(guiConfig, 'HNM_VERBOSE').name('HNM Verbose Logging').onChange(checkForNeededResetsAndUpdateStatus);
+        const tfInfoFolder = gui.addFolder('TFJS Info').close();
+        guiControllers.tfjsBackend = tfInfoFolder.add(guiTfjsInfo, 'backend').name('Backend').disable();
+        guiControllers.tfjsMemory = tfInfoFolder.add(guiTfjsInfo, 'memory').name('Memory').disable();
+        guiControllers.tfjsNumTensors = tfInfoFolder.add(guiTfjsInfo, 'numTensors').name('Num Tensors').disable();
+        guiControllers.tfjsNumDataBuffers = tfInfoFolder.add(guiTfjsInfo, 'numDataBuffers').name('Num Data Buffers').disable();
+        const paramActionsFolder = gui.addFolder('Parameter Actions');
+        guiControllers.applyChanges = paramActionsFolder.add(simulationActions, 'applyChanges').name('Apply Changes');
+        guiControllers.saveParams = paramActionsFolder.add(simulationActions, 'saveParams').name('Save Params');
+        guiControllers.loadParams = paramActionsFolder.add(simulationActions, 'loadParams').name('Load Params');
+        guiControllers.resetToDefault = paramActionsFolder.add(simulationActions, 'resetToDefault').name('Reset UI to Default');
+    }
+    window.addEventListener('load', async () => {
+        await setupTfBackend(); 
+        DEFAULT_CONFIG.HIERARCHY_LEVEL_CONFIGS = _getProcessedHLC(DEFAULT_CONFIG.HIERARCHY_LEVEL_CONFIGS, DEFAULT_CONFIG);
+        appliedConfig = copyConfig(DEFAULT_CONFIG); 
+        guiConfig = {}; 
+        for (const key in DEFAULT_CONFIG) {
+            if (DEFAULT_CONFIG.hasOwnProperty(key)) {
+                if (key === 'HIERARCHY_LEVEL_CONFIGS') {
+                    guiConfig[key] = JSON.stringify(DEFAULT_CONFIG[key], null, 2); 
+                } else {
+                    guiConfig[key] = DEFAULT_CONFIG[key];
+                }
+            }
+        }
+        initLilGUI(); 
+        visualizer = new Visualizer(ctxGrid, gridContainerEl);
+        if (!setup_simulation(true, true)) { statusEl.textContent = "Status: Initialization Failed!"; return; }
+        if (appliedConfig.NUM_HC_BOTS !== guiConfig.NUM_HC_BOTS) guiConfig.NUM_HC_BOTS = appliedConfig.NUM_HC_BOTS;
+        if (appliedConfig.NUM_LEARNING_BOTS !== guiConfig.NUM_LEARNING_BOTS) guiConfig.NUM_LEARNING_BOTS = appliedConfig.NUM_LEARNING_BOTS;
+        refreshGUIDisplay(); 
+        visualizer.update(clientState); 
+        updateInfoPanel(); 
+        updatePlayerInfo(); 
+        handleRejoinGame(); 
+        checkForNeededResetsAndUpdateStatus(); 
+        if (appliedConfig.AUTOSTART_SIMULATION && !clientState.needsFullReset && !clientState.needsRoundReset && JSON.stringify(guiConfig) === JSON.stringify(appliedConfig)) { 
+             startSimulation(); 
+        }
+    });
+    let resizeTimeout; window.addEventListener('resize', () => { clearTimeout(resizeTimeout); resizeTimeout = setTimeout(() => { if (visualizer && clientState.environment) { try { visualizer.updateGridDimensions(clientState.environment.size); visualizer.update(clientState); } catch(e){ console.error("Resize error: " + e.message); } } }, 150); });
+</script>
+</body>
+</html>
+
