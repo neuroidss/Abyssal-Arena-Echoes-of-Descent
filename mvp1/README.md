@@ -1,4 +1,4 @@
-# [Hierarchical Multi-Bot Sim (Client-Side TFJS) - v6.3.0](https://neuroidss.github.io/Abyssal-Arena-Echoes-of-Descent/mvp1/Hierarchical_Multi-Bot_Sim_Client-Side_TFJS_-_v6.3.0.html)
+# [Hierarchical Multi-Bot Sim (Client-Side TFJS) - v6.5.0](https://neuroidss.github.io/Abyssal-Arena-Echoes-of-Descent/mvp1/Hierarchical_Multi-Bot_Sim_Client-Side_TFJS_-_v6.5.0.html)
 
 # vibe coding prompt for [SDR_Prediction_Demo](https://neuroidss.github.io/Abyssal-Arena-Echoes-of-Descent/mvp1/Multi-Bot_SDR_Prediction_Demo_(v4.2_-_HTM_Principles).html)
 ```
